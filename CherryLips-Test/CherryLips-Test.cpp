@@ -6,38 +6,44 @@
 #include <iostream>
 #include <vector>
 
+#define bucket "test"
+#define object "fv/my-object"
+
+
+void testMakeBucket(MinioClient* client) { client->MakeBucket(bucket); }
+
 void testUploadObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest("my-bucket-name", "fv/Database2.accdb");
-  std::string etag = client->UploadObject(&dest, "E:\\Database2.accdb");
+  MinioClient::RemoteObjectStruct dest(bucket, object);
+  std::string etag = client->UploadObject(&dest, "CherryLips-Test.cpp");
 }
 
 void testUploadObjectMemory(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest("my-bucket-name", "fv/1.txt");
+  MinioClient::RemoteObjectStruct dest(bucket, "fv/1.txt");
   const char* data = "123123123123123";
   std::string etag = client->UploadObjectMemory(&dest, data, strlen(data));
 }
 
 void testIsBucketExists(MinioClient* client) { 
-    bool b = client->IsBucketExists("my-bucket-name");
+    bool b = client->IsBucketExists(bucket);
 }
 
 void testComposeObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest("my-bucket-name", "fv/all-object");
+  MinioClient::RemoteObjectStruct dest(bucket, "fv/all-object");
   MinioClient::RemoteObjectStruct sources[2];
-  sources[0].assign("my-bucket-name", "fv/Database2.accdb");
-  sources[1].assign("my-bucket-name", "fv/my-object");
+  sources[0].assign(bucket, "fv/my-object1");
+  sources[1].assign(bucket, "fv/my-object");
   client->ComposeObject(&dest, sources, 2);
 }
 
 void testCopyObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest("my-bucket-name", "fv/Database3.accdb");
-  MinioClient::RemoteObjectStruct src("my-bucket-name", "fv/Database2.accdb");
+  MinioClient::RemoteObjectStruct dest(bucket, "fv/my-object-copy");
+  MinioClient::RemoteObjectStruct src(bucket, object);
   client->CopyObject(&dest, &src);
 }
 
 void testDownloadObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct src("my-bucket-name", "fv/Database2.accdb");
-  client->DownloadObject(&src, "E:\\1.accdb");
+  MinioClient::RemoteObjectStruct src(bucket, object);
+  client->DownloadObject(&src, "1.txt");
 }
 
 bool ReadObjectCallback(const char* datachunk, size_t datalen,
@@ -46,12 +52,12 @@ bool ReadObjectCallback(const char* datachunk, size_t datalen,
   return true;
 }
 void testReadObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct src("my-bucket-name", "fv/my-object");
+  MinioClient::RemoteObjectStruct src(bucket, object);
   client->ReadObject(&src, ReadObjectCallback);
 }
 
 void testGenerateObjectUrl(MinioClient* client) {
-  MinioClient::RemoteObjectStruct src("my-bucket-name", "fv/my-object");
+  MinioClient::RemoteObjectStruct src(bucket, object);
   std::string url = client->GenerateObjectUrl(&src, 30 * 60);
 }
 
@@ -62,10 +68,8 @@ void testListBuckets(MinioClient* client) {
   client->ListBuckets(ListBucketsCallback, NULL);
 }
 
-void testMakeBucket(MinioClient* client) { client->MakeBucket("mensong"); }
-
 void testRemoveObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest("my-bucket-name", "fv/Database3.accdb");
+  MinioClient::RemoteObjectStruct dest(bucket, "fv/my-object-copy");
   client->RemoveObject(&dest);
 }
 
@@ -81,10 +85,10 @@ void testSetBucketTags(MinioClient* client) {
   tags += '\0';
   tags += '\0';
 
-  client->SetBucketTags("my-bucket-name", &tags[0]);
-  client->GetBucketTags("my-bucket-name", GetBucketTagsCallback);
-  client->RemoveBucketTags("my-bucket-name");
-  client->GetBucketTags("my-bucket-name", GetBucketTagsCallback);
+  client->SetBucketTags(bucket, &tags[0]);
+  client->GetBucketTags(bucket, GetBucketTagsCallback);
+  client->RemoveBucketTags(bucket);
+  client->GetBucketTags(bucket, GetBucketTagsCallback);
 }
 
 void testSetObjectTags(MinioClient* client) {
@@ -95,7 +99,7 @@ void testSetObjectTags(MinioClient* client) {
   tags += '\0';
   tags += '\0';
 
-  MinioClient::RemoteObjectStruct src("my-bucket-name", "fv/my-object");
+  MinioClient::RemoteObjectStruct src(bucket, object);
   client->SetObjectTags(&src, &tags[0]);
   client->GetObjectTags(&src, GetBucketTagsCallback);
   client->RemoveObjectTags(&src);
@@ -109,6 +113,7 @@ int main() {
       "https://play.min.io", "Q3AM3UQ867SPQQA43P2F",
       "zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG", NULL);
 
+  testMakeBucket(client);
   testUploadObject(client);
   testUploadObjectMemory(client);
   testIsBucketExists(client);
@@ -118,12 +123,13 @@ int main() {
   testReadObject(client);
   testGenerateObjectUrl(client);
   testListBuckets(client);
-  testMakeBucket(client);
   testRemoveObject(client);
   testSetBucketTags(client);
   testSetObjectTags(client);
 
   CherryLips::Ins().FreeClient(&client);
+
+  getchar();
 
   return 0;
 }

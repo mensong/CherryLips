@@ -35,7 +35,7 @@ class MinioClient_imp : public MinioClient {
                                    PFN_ProgressCallback cb = NULL,
                                    void* userData = NULL) override {
     m_errorBuffer.clear();
-    if (!remoteObject || !localFilePath) return NULL;
+    if (!remoteObject || !localFilePath) return "";
 
     // Create upload object arguments.
     minio::s3::UploadObjectArgs args;
