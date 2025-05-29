@@ -136,25 +136,34 @@ class MinioClient {
                           const RemoteObjectStruct* source) = 0;
 
   virtual bool DownloadObject(const RemoteObjectStruct* remoteObject,
-                              const char* localFilePath) = 0;
+                              const char* localFilePath, 
+                              const char* version_id = NULL) = 0;
 
   virtual bool ReadObject(const RemoteObjectStruct* remoteObject,
                           PFN_ReadObjectCallback readCB,
                           PFN_ProgressCallback progressCB = NULL,
                           void* readUserData = NULL,
-                          void* progressUserData = NULL) = 0;
+                          void* progressUserData = NULL, 
+                          const char* version_id = NULL) = 0;
 
   virtual const char* GenerateObjectUrl(const RemoteObjectStruct* remoteObject,
                                         unsigned int expirySeconds,
-                                        Method method = Method::kGet) = 0;
+                                        Method method = Method::kGet,
+                                        const char* version_id = NULL) = 0;
 
   virtual bool ListBuckets(PFN_ListBucketsCallback cb, void* userData = NULL) = 0;
+
+  virtual const char* ListObjects(const char* bucket, const char* objectPathPrefix,
+                                   bool recursive = false, bool include_versions = false,
+                                   bool fetch_owner = false, bool include_user_metadata = false
+                                   ) = 0;
 
   virtual bool MakeBucket(const char* bucketName) = 0;
 
   virtual bool RemoveBucket(const char* bucketName) = 0;
 
-  virtual bool RemoveObject(const RemoteObjectStruct* remoteObject) = 0;
+  virtual bool RemoveObject(const RemoteObjectStruct* remoteObject,
+	                        const char* version_id = NULL) = 0;
 
   // keyvalueListStr - e.g:"key1=val1\0key2=val2\0key3=val3\0\0";
   virtual bool SetBucketTags(const char* bucketName,
@@ -162,15 +171,18 @@ class MinioClient {
 
   // keyvalueListStr - e.g:"key1=val1\0key2=val2\0key3=val3\0\0";
   virtual bool SetObjectTags(const RemoteObjectStruct* remoteObject,
-                             const char* keyvalueListStr) = 0;
+                             const char* keyvalueListStr,
+                             const char* version_id = NULL) = 0;
 
   virtual bool GetBucketTags(const char* bucketName, PFN_GetTagsCallback cb,
                              void* userData = NULL) = 0;
   virtual bool GetObjectTags(const RemoteObjectStruct* remoteObject,
-                             PFN_GetTagsCallback cb, void* userData = NULL) = 0;
+                             PFN_GetTagsCallback cb, void* userData = NULL,
+                             const char* version_id = NULL) = 0;
 
   virtual bool RemoveBucketTags(const char* bucketName) = 0;
-  virtual bool RemoveObjectTags(const RemoteObjectStruct* remoteObject) = 0;
+  virtual bool RemoveObjectTags(const RemoteObjectStruct* remoteObject,
+	                            const char* version_id = NULL) = 0;
 };
 
 MINIO_API class CherryLips* MINIO_Instance();

@@ -29,16 +29,19 @@ void testMakeBucket(MinioClient* client) { client->MakeBucket(BUCKET_NAME); }
 void testUploadObject(MinioClient* client) {
   MinioClient::RemoteObjectStruct dest(BUCKET_NAME, OBJECT_PATH);
   std::string etag = client->UploadObject(&dest, "CherryLips-Test.cpp", _UploadProgressCallback, NULL);
+  std::cout << etag << std::endl;
 }
 
 void testUploadObjectMemory(MinioClient* client) {
   MinioClient::RemoteObjectStruct dest(BUCKET_NAME, "fv/1.txt");
   const char* data = "123123123123123";
   std::string etag = client->UploadObjectMemory(&dest, data, strlen(data));
+  std::cout << etag << std::endl;
 }
 
 void testIsBucketExists(MinioClient* client) { 
     bool b = client->IsBucketExists(BUCKET_NAME);
+	std::cout << "bucket:" << BUCKET_NAME << (b ? "exists" : "not exists") << std::endl;
 }
 
 void testComposeObject(MinioClient* client) {
@@ -73,6 +76,7 @@ void testReadObject(MinioClient* client) {
 void testGenerateObjectUrl(MinioClient* client) {
   MinioClient::RemoteObjectStruct src(BUCKET_NAME, OBJECT_PATH);
   std::string url = client->GenerateObjectUrl(&src, 30 * 60);
+  std::cout << url << std::endl;
 }
 
 void ListBucketsCallback(const char* bucketName, void* userData) {
@@ -120,8 +124,13 @@ void testSetObjectTags(MinioClient* client) {
   client->GetObjectTags(&src, GetBucketTagsCallback);
 }
 
+void testListObjects(MinioClient* client) {
+	std::string arrJson = client->ListObjects(BUCKET_NAME, "fv/");
+	std::cout << "testListObjects:" << std::endl
+		      << arrJson << std::endl;
+}
+
 int main() {
-  const char** pp[9][2];
 
   MinioClient* client = CherryLips::Ins().NewClient(
       "https://play.min.io", "Q3AM3UQ867SPQQA43P2F",
@@ -140,6 +149,7 @@ int main() {
   testRemoveObject(client);
   testSetBucketTags(client);
   testSetObjectTags(client);
+  testListObjects(client);
 
   CherryLips::Ins().FreeClient(&client);
 

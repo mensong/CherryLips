@@ -2,7 +2,7 @@
 #include "CherryLips.h"
 #include <sstream>
 #include <miniocpp/client.h>
-
+#include <nlohmann/json.hpp>
 
 class MinioClient_imp : public MinioClient {
   //
@@ -76,7 +76,7 @@ class MinioClient_imp : public MinioClient {
     std::string sbuf(uploadData, dataLen);
     std::istringstream iss(sbuf, std::ios_base::binary);
 
-    minio::s3::PutObjectArgs args(iss, dataLen, partSize);
+    minio::s3::PutObjectArgs args(iss, (long)dataLen, (long)partSize);
     args.bucket = remoteObject->bucket;
     args.object = remoteObject->objectPath;
 
@@ -186,12 +186,14 @@ class MinioClient_imp : public MinioClient {
   }
 
   bool DownloadObject(const RemoteObjectStruct* remoteObject,
-                      const char* localFilePath) override {
+                      const char* localFilePath, 
+                      const char* version_id = NULL) override {
     m_errorBuffer.clear();
     // Create download object arguments.
     minio::s3::DownloadObjectArgs args;
     args.bucket = remoteObject->bucket;
     args.object = remoteObject->objectPath;
+    if (version_id) args.version_id = version_id;
     args.filename = localFilePath;
 
     // Call download object.
@@ -209,13 +211,15 @@ class MinioClient_imp : public MinioClient {
   bool ReadObject(const RemoteObjectStruct* remoteObject,
                   PFN_ReadObjectCallback readCB,
                   PFN_ProgressCallback progressCB = NULL,
-                  void* readUserData = 0, void* progressUserData = 0) override {
+	              void* readUserData = 0, void* progressUserData = 0,
+	              const char* version_id = NULL) override {
     m_errorBuffer.clear();
     if (!remoteObject || !readCB) return false;
     // Create get object arguments.
     minio::s3::GetObjectArgs args;
     args.bucket = remoteObject->bucket;
     args.object = remoteObject->objectPath;
+    if (version_id) args.version_id = version_id;
     args.userdata = readUserData;
     args.datafunc = [&](minio::http::DataFunctionArgs args) -> bool {
       return readCB(args.datachunk.data(), args.datachunk.size(), args.userdata);
@@ -245,7 +249,8 @@ class MinioClient_imp : public MinioClient {
 
   const char* GenerateObjectUrl(const RemoteObjectStruct* remoteObject,
                                 unsigned int expirySeconds,
-                                Method method = Method::kGet) override {
+                                Method method = Method::kGet,
+                                const char* version_id = NULL) override {
     m_errorBuffer.clear();
     if (!remoteObject) return "";
 
@@ -255,6 +260,7 @@ class MinioClient_imp : public MinioClient {
     args.object = remoteObject->objectPath;
     args.method = (minio::http::Method)method;
     args.expiry_seconds = expirySeconds;
+    if (version_id) args.version_id = version_id;
 
     // Call get presigned object url.
     minio::s3::GetPresignedObjectUrlResponse resp =
@@ -288,6 +294,64 @@ class MinioClient_imp : public MinioClient {
       m_errorBuffer = resp.Error().String();
       return false;
     }
+  }
+
+  const char* ListObjects(const char* bucket, const char* objectPathPrefix,
+                          bool recursive = false, bool include_versions = false, 
+                          bool fetch_owner = false, bool include_user_metadata = false) override {
+      m_errorBuffer.clear();
+      if (!bucket) return "[]";
+
+	  // Create list objects arguments.
+	  minio::s3::ListObjectsArgs args;
+      args.bucket = bucket;
+	  args.recursive = recursive;
+	  args.fetch_owner = fetch_owner;
+	  args.include_user_metadata = include_user_metadata;
+	  args.include_versions = include_versions;
+      if (objectPathPrefix) args.prefix = objectPathPrefix;
+	  
+	  // Call list objects.
+	  minio::s3::ListObjectsResult result = m_client.ListObjects(args);
+
+      nlohmann::json jarrObjects = nlohmann::json::array();
+
+	  for (; result; result++) {
+		  minio::s3::Item item = *result;
+		  if (item) {
+
+              nlohmann::json jItem;
+              jItem["name"] = item.name;
+              jItem["version_id"] = item.version_id;
+              jItem["etag"] = item.etag;
+              jItem["size"] = item.size;
+              jItem["last_modified"] = item.last_modified.ToISO8601UTC();
+              jItem["is_delete_marker"] = item.is_delete_marker;
+
+              nlohmann::json jarruser_metadata = nlohmann::json::array();
+			  for (auto& [key, value] : item.user_metadata) {
+                  nlohmann::json juser_metadata;
+				  juser_metadata["key"] = key;
+				  juser_metadata["value"] = value;
+                  jarruser_metadata.push_back(juser_metadata);
+			  }
+              jItem["user_metadata"] = jarruser_metadata;
+
+			  jItem["owner_id"] = item.owner_id;
+			  jItem["owner_name"] = item.owner_name;
+			  jItem["storage_class"] = item.storage_class;
+			  jItem["is_latest"] = item.is_latest;
+			  jItem["is_prefix"] = item.is_prefix;
+
+              jarrObjects.push_back(jItem);
+		  }
+		  else {
+			  break;
+		  }
+	  }
+
+      m_buffer = jarrObjects.dump();
+      return m_buffer.c_str();
   }
 
   bool MakeBucket(const char* bucketName) override {
@@ -330,7 +394,8 @@ class MinioClient_imp : public MinioClient {
     }
   }
 
-  bool RemoveObject(const RemoteObjectStruct* remoteObject) override {
+  bool RemoveObject(const RemoteObjectStruct* remoteObject,
+                    const char* version_id = NULL) override {
     m_errorBuffer.clear();
     if (!remoteObject) return false;
 
@@ -338,6 +403,7 @@ class MinioClient_imp : public MinioClient {
     minio::s3::RemoveObjectArgs args;
     args.bucket = remoteObject->bucket;
     args.object = remoteObject->objectPath;
+    if (version_id) args.version_id = version_id;
 
     // Call remove object.
     minio::s3::RemoveObjectResponse resp = m_client.RemoveObject(args);
@@ -373,7 +439,7 @@ class MinioClient_imp : public MinioClient {
         args.tags[key] = val;
       }
 
-      int curLen = strlen(str);
+      int curLen = (int)strlen(str);
       p += (curLen + 1);
     }
 
@@ -391,7 +457,8 @@ class MinioClient_imp : public MinioClient {
 
 
  bool SetObjectTags(const RemoteObjectStruct* remoteObject,
-                     const char* keyvalueListStr) override {
+                    const char* keyvalueListStr,
+                    const char* version_id = NULL) override {
     m_errorBuffer.clear();
    if (!remoteObject || !keyvalueListStr) return false;
 
@@ -399,6 +466,7 @@ class MinioClient_imp : public MinioClient {
    minio::s3::SetObjectTagsArgs args;
    args.bucket = remoteObject->bucket;
    args.object = remoteObject->objectPath;
+   if (version_id) args.version_id = version_id;
 
    const char* p = keyvalueListStr;
    while (p) {
@@ -414,7 +482,7 @@ class MinioClient_imp : public MinioClient {
        args.tags[key] = val;
      }
 
-     int curLen = strlen(str);
+     int curLen = (int)strlen(str);
      p += (curLen + 1);
    }
 
@@ -455,7 +523,8 @@ class MinioClient_imp : public MinioClient {
   }
 
  bool GetObjectTags(const RemoteObjectStruct* remoteObject,
-                    PFN_GetTagsCallback cb, void* userData = NULL) override {
+                    PFN_GetTagsCallback cb, void* userData = NULL,
+                    const char* version_id = NULL) override {
     m_errorBuffer.clear();
    if (!remoteObject || !cb) return false;
 
@@ -463,6 +532,7 @@ class MinioClient_imp : public MinioClient {
    minio::s3::GetObjectTagsArgs args;
    args.bucket = remoteObject->bucket;
    args.object = remoteObject->objectPath;
+   if (version_id) args.version_id = version_id;
 
    // Call get object tags.
    minio::s3::GetObjectTagsResponse resp = m_client.GetObjectTags(args);
@@ -500,7 +570,8 @@ class MinioClient_imp : public MinioClient {
    }
  }
 
- bool RemoveObjectTags(const RemoteObjectStruct* remoteObject) override {
+ bool RemoveObjectTags(const RemoteObjectStruct* remoteObject,
+	                   const char* version_id = NULL) override {
    m_errorBuffer.clear();
    if (!remoteObject) return false;
 
@@ -508,6 +579,7 @@ class MinioClient_imp : public MinioClient {
    minio::s3::DeleteObjectTagsArgs args;
    args.bucket = remoteObject->bucket;
    args.object = remoteObject->objectPath;
+   if (version_id) args.version_id = version_id;
 
    // Call delete object tags.
    minio::s3::DeleteObjectTagsResponse resp = m_client.DeleteObjectTags(args);
@@ -520,6 +592,7 @@ class MinioClient_imp : public MinioClient {
      return false;
    }
  }
+
 };
 
 CherryLips g_ins;
