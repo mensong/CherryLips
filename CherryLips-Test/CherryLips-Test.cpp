@@ -6,43 +6,57 @@
 #include <iostream>
 #include <vector>
 
-#define bucket "test"
-#define object "fv/my-object"
+#define BUCKET_NAME "test"
+#define OBJECT_PATH "fv/my-object"
 
+bool _UploadProgressCallback(
+	double download_total_bytes,
+	double downloaded_bytes,
+	double download_speed,
+	double upload_total_bytes,
+	double uploaded_bytes,
+	double upload_speed, void* userdata)
+{
+	if (upload_total_bytes != 0) {
+		double percent = uploaded_bytes / upload_total_bytes * 100;
+		printf("\n%.2f%%", percent);
+	}
+	return true;
+}
 
-void testMakeBucket(MinioClient* client) { client->MakeBucket(bucket); }
+void testMakeBucket(MinioClient* client) { client->MakeBucket(BUCKET_NAME); }
 
 void testUploadObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest(bucket, object);
-  std::string etag = client->UploadObject(&dest, "CherryLips-Test.cpp");
+  MinioClient::RemoteObjectStruct dest(BUCKET_NAME, OBJECT_PATH);
+  std::string etag = client->UploadObject(&dest, "CherryLips-Test.cpp", _UploadProgressCallback, NULL);
 }
 
 void testUploadObjectMemory(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest(bucket, "fv/1.txt");
+  MinioClient::RemoteObjectStruct dest(BUCKET_NAME, "fv/1.txt");
   const char* data = "123123123123123";
   std::string etag = client->UploadObjectMemory(&dest, data, strlen(data));
 }
 
 void testIsBucketExists(MinioClient* client) { 
-    bool b = client->IsBucketExists(bucket);
+    bool b = client->IsBucketExists(BUCKET_NAME);
 }
 
 void testComposeObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest(bucket, "fv/all-object");
+  MinioClient::RemoteObjectStruct dest(BUCKET_NAME, "fv/all-object");
   MinioClient::RemoteObjectStruct sources[2];
-  sources[0].assign(bucket, "fv/my-object1");
-  sources[1].assign(bucket, "fv/my-object");
+  sources[0].assign(BUCKET_NAME, "fv/my-object1");
+  sources[1].assign(BUCKET_NAME, "fv/my-object");
   client->ComposeObject(&dest, sources, 2);
 }
 
 void testCopyObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest(bucket, "fv/my-object-copy");
-  MinioClient::RemoteObjectStruct src(bucket, object);
+  MinioClient::RemoteObjectStruct dest(BUCKET_NAME, "fv/my-object-copy");
+  MinioClient::RemoteObjectStruct src(BUCKET_NAME, OBJECT_PATH);
   client->CopyObject(&dest, &src);
 }
 
 void testDownloadObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct src(bucket, object);
+  MinioClient::RemoteObjectStruct src(BUCKET_NAME, OBJECT_PATH);
   client->DownloadObject(&src, "1.txt");
 }
 
@@ -52,12 +66,12 @@ bool ReadObjectCallback(const char* datachunk, size_t datalen,
   return true;
 }
 void testReadObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct src(bucket, object);
+  MinioClient::RemoteObjectStruct src(BUCKET_NAME, OBJECT_PATH);
   client->ReadObject(&src, ReadObjectCallback);
 }
 
 void testGenerateObjectUrl(MinioClient* client) {
-  MinioClient::RemoteObjectStruct src(bucket, object);
+  MinioClient::RemoteObjectStruct src(BUCKET_NAME, OBJECT_PATH);
   std::string url = client->GenerateObjectUrl(&src, 30 * 60);
 }
 
@@ -69,7 +83,7 @@ void testListBuckets(MinioClient* client) {
 }
 
 void testRemoveObject(MinioClient* client) {
-  MinioClient::RemoteObjectStruct dest(bucket, "fv/my-object-copy");
+  MinioClient::RemoteObjectStruct dest(BUCKET_NAME, "fv/my-object-copy");
   client->RemoveObject(&dest);
 }
 
@@ -85,10 +99,10 @@ void testSetBucketTags(MinioClient* client) {
   tags += '\0';
   tags += '\0';
 
-  client->SetBucketTags(bucket, &tags[0]);
-  client->GetBucketTags(bucket, GetBucketTagsCallback);
-  client->RemoveBucketTags(bucket);
-  client->GetBucketTags(bucket, GetBucketTagsCallback);
+  client->SetBucketTags(BUCKET_NAME, &tags[0]);
+  client->GetBucketTags(BUCKET_NAME, GetBucketTagsCallback);
+  client->RemoveBucketTags(BUCKET_NAME);
+  client->GetBucketTags(BUCKET_NAME, GetBucketTagsCallback);
 }
 
 void testSetObjectTags(MinioClient* client) {
@@ -99,7 +113,7 @@ void testSetObjectTags(MinioClient* client) {
   tags += '\0';
   tags += '\0';
 
-  MinioClient::RemoteObjectStruct src(bucket, object);
+  MinioClient::RemoteObjectStruct src(BUCKET_NAME, OBJECT_PATH);
   client->SetObjectTags(&src, &tags[0]);
   client->GetObjectTags(&src, GetBucketTagsCallback);
   client->RemoveObjectTags(&src);
