@@ -41,7 +41,7 @@ void testUploadObjectMemory(MinioClient* client) {
 
 void testIsBucketExists(MinioClient* client) { 
     bool b = client->IsBucketExists(BUCKET_NAME);
-	std::cout << "bucket:" << BUCKET_NAME << (b ? "exists" : "not exists") << std::endl;
+	std::cout << "bucket:" << BUCKET_NAME << (b ? " exists" : " not exists") << std::endl;
 }
 
 void testComposeObject(MinioClient* client) {

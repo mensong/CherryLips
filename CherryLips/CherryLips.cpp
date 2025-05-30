@@ -602,7 +602,7 @@ MINIO_API MinioClient* __cdecl NewClient(const char* url,
                                          const char* access_key,
                                          const char* secret_key,
                                          const char* session_token) {
-  if (!url) return NULL;
+  if (!url || url[0] == '\0') return NULL;
 
   minio::http::Url uri = minio::http::Url::Parse(url);
 
@@ -610,12 +610,13 @@ MINIO_API MinioClient* __cdecl NewClient(const char* url,
   std::string host = uri.host;
   if (uri.port != 0) host += ':' + std::to_string(uri.port);
   minio::s3::BaseUrl base_url(host, uri.https);
+  if (!base_url)
+    return NULL;
 
   if (access_key && secret_key) {
     // Create credential provider.
     minio::creds::StaticProvider* provider = new minio::creds::StaticProvider(
         access_key, secret_key, (session_token ? session_token : ""));
-
     return new MinioClient_imp(base_url, provider);
   } else {
     return new MinioClient_imp(base_url, nullptr);
