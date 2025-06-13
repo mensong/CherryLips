@@ -51,6 +51,7 @@ public:
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
 				if (timeoutMS && ::GetTickCount() - st > timeoutMS) {
+					m_errorBuffer = "timeout";
 					return false;
 				}
 
@@ -101,6 +102,7 @@ public:
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
 				if (timeoutMS && ::GetTickCount() - st > timeoutMS) {
+					m_errorBuffer = "timeout";
 					return false;
 				}
 
@@ -235,6 +237,7 @@ public:
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
 				if (timeoutMS && ::GetTickCount() - st > timeoutMS) {
+					m_errorBuffer = "timeout";
 					return false;
 				}
 
@@ -285,6 +288,7 @@ public:
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
 				if (timeoutMS && ::GetTickCount() - st > timeoutMS) {
+					m_errorBuffer = "timeout";
 					return false;
 				}
 
