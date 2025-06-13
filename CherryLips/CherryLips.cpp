@@ -46,8 +46,8 @@ public:
 		args.filename = localFilePath;
 
 		bool isTimeout = false;
-		if (progressCB || timeoutMS) {
-			DWORD st = 0;
+		DWORD st = 0;
+		if (progressCB || timeoutMS) {			
 			args.progress_userdata = progressUserData;
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
@@ -108,8 +108,8 @@ public:
 		args.object = remoteObject->objectPath;
 
 		bool isTimeout = false;
+		DWORD st = 0;
 		if (timeoutMS || progressCB) {
-			DWORD st = 0;
 			args.progress_userdata = progressUserData;
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
@@ -254,8 +254,8 @@ public:
 		args.filename = localFilePath;
 
 		bool isTimeout = false;
+		DWORD st = 0;
 		if (timeoutMS || progressCB) {
-			DWORD st = 0;
 			args.progress_userdata = progressUserData;
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
@@ -316,8 +316,8 @@ public:
 		};
 
 		bool isTimeout = false;
+		DWORD st = 0;
 		if (timeoutMS || progressCB) {
-			DWORD st = 0;
 			args.progress_userdata = progressUserData;
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
