@@ -138,23 +138,31 @@ public:
 		void* progressUserData = NULL,
 		DWORD timeoutMS = 0) = 0;
 
-	virtual bool IsBucketExists(const char* bucket) = 0;
+	virtual bool IsBucketExists(
+		const char* bucket,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool ComposeObject(const RemoteObjectStruct* dest,
+	virtual bool ComposeObject(
+		const RemoteObjectStruct* dest,
 		const RemoteObjectStruct* arrSources,
-		int sourcesCount) = 0;
+		int sourcesCount,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool CopyObject(const RemoteObjectStruct* dest,
-		const RemoteObjectStruct* source) = 0;
+	virtual bool CopyObject(
+		const RemoteObjectStruct* dest,
+		const RemoteObjectStruct* source,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool DownloadObject(const RemoteObjectStruct* remoteObject,
+	virtual bool DownloadObject(
+		const RemoteObjectStruct* remoteObject,
 		const char* localFilePath,
 		const char* version_id = NULL,
 		PFN_ProgressCallback progressCB = NULL,
 		void* progressUserData = NULL,
 		DWORD timeoutMS = 0) = 0;
 
-	virtual bool ReadObject(const RemoteObjectStruct* remoteObject,
+	virtual bool ReadObject(
+		const RemoteObjectStruct* remoteObject,
 		PFN_ReadObjectCallback readCB,
 		PFN_ProgressCallback progressCB = NULL,
 		void* readUserData = NULL,
@@ -162,43 +170,73 @@ public:
 		const char* version_id = NULL,
 		DWORD timeoutMS = 0) = 0;
 
-	virtual const char* GenerateObjectUrl(const RemoteObjectStruct* remoteObject,
+	virtual const char* GenerateObjectUrl(
+		const RemoteObjectStruct* remoteObject,
 		unsigned int expirySeconds,
 		Method method = Method::kGet,
-		const char* version_id = NULL) = 0;
+		const char* version_id = NULL,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool ListBuckets(PFN_ListBucketsCallback cb, void* userData = NULL) = 0;
+	virtual bool ListBuckets(
+		PFN_ListBucketsCallback cb, 
+		void* userData = NULL,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual const char* ListObjects(const char* bucket, const char* objectPathPrefix,
-		bool recursive = false, bool include_versions = false,
-		bool fetch_owner = false, bool include_user_metadata = false
-	) = 0;
+	virtual const char* ListObjects(
+		const char* bucket,
+		const char* objectPathPrefix,
+		bool recursive = false,
+		bool include_versions = false,
+		bool fetch_owner = false,
+		bool include_user_metadata = false,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool MakeBucket(const char* bucketName) = 0;
+	virtual bool MakeBucket(
+		const char* bucketName,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool RemoveBucket(const char* bucketName) = 0;
+	virtual bool RemoveBucket(
+		const char* bucketName,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool RemoveObject(const RemoteObjectStruct* remoteObject,
-		const char* version_id = NULL) = 0;
+	virtual bool RemoveObject(
+		const RemoteObjectStruct* remoteObject,
+		const char* version_id = NULL,
+		DWORD timeoutMS = 0) = 0;
 
 	// keyvalueListStr - e.g:"key1=val1\0key2=val2\0key3=val3\0\0";
-	virtual bool SetBucketTags(const char* bucketName,
-		const char* keyvalueListStr) = 0;
-
-	// keyvalueListStr - e.g:"key1=val1\0key2=val2\0key3=val3\0\0";
-	virtual bool SetObjectTags(const RemoteObjectStruct* remoteObject,
+	virtual bool SetBucketTags(
+		const char* bucketName,
 		const char* keyvalueListStr,
-		const char* version_id = NULL) = 0;
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool GetBucketTags(const char* bucketName,
-		PFN_GetTagsCallback cb, void* userData = NULL) = 0;
-	virtual bool GetObjectTags(const RemoteObjectStruct* remoteObject,
-		PFN_GetTagsCallback cb, void* userData = NULL,
-		const char* version_id = NULL) = 0;
+	// keyvalueListStr - e.g:"key1=val1\0key2=val2\0key3=val3\0\0";
+	virtual bool SetObjectTags(
+		const RemoteObjectStruct* remoteObject,
+		const char* keyvalueListStr,
+		const char* version_id = NULL,
+		DWORD timeoutMS = 0) = 0;
 
-	virtual bool RemoveBucketTags(const char* bucketName) = 0;
-	virtual bool RemoveObjectTags(const RemoteObjectStruct* remoteObject,
-		const char* version_id = NULL) = 0;
+	virtual bool GetBucketTags(
+		const char* bucketName,
+		PFN_GetTagsCallback cb, 
+		void* userData = NULL,
+		DWORD timeoutMS = 0) = 0;
+
+	virtual bool GetObjectTags(
+		const RemoteObjectStruct* remoteObject,
+		PFN_GetTagsCallback cb, 
+		void* userData = NULL,
+		const char* version_id = NULL,
+		DWORD timeoutMS = 0) = 0;
+
+	virtual bool RemoveBucketTags(
+		const char* bucketName,
+		DWORD timeoutMS = 0) = 0;
+	virtual bool RemoveObjectTags(
+		const RemoteObjectStruct* remoteObject,
+		const char* version_id = NULL,
+		DWORD timeoutMS = 0) = 0;
 };
 
 MINIO_API class CherryLips* MINIO_Instance();
@@ -208,7 +246,8 @@ MINIO_API class CherryLips* MINIO_Instance();
 //  access_key - 如：Q3AM3UQ867SPQQA43P2F
 //  secret_key - 如:zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG
 //  session_token - 为空即可
-MINIO_API MinioClient* __cdecl NewClient(const char* url,
+MINIO_API MinioClient* __cdecl NewClient(
+	const char* url,
 	const char* access_key,
 	const char* secret_key,
 	const char* session_token);
