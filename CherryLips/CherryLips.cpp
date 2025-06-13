@@ -34,7 +34,7 @@ public:
 		const RemoteObjectStruct* remoteObject,
 		const char* localFilePath,
 		PFN_ProgressCallback progressCB = NULL,
-		void* progressUserData = NULL, 
+		void* progressUserData = NULL,
 		DWORD timeoutMS = 0) override {
 		m_errorBuffer.clear();
 		if (!remoteObject || !localFilePath) return "";
@@ -45,14 +45,20 @@ public:
 		args.object = remoteObject->objectPath;
 		args.filename = localFilePath;
 
+		bool isTimeout = false;
 		if (progressCB || timeoutMS) {
-			DWORD st = ::GetTickCount();
+			DWORD st = 0;
 			args.progress_userdata = progressUserData;
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
-				if (timeoutMS && ::GetTickCount() - st > timeoutMS) {
-					m_errorBuffer = "timeout";
-					return false;
+				if (timeoutMS) {
+					if (st == 0) {
+						st = ::GetTickCount();
+					}
+					if (::GetTickCount() - st > timeoutMS) {
+						isTimeout = true;
+						return false;
+					}
 				}
 
 				if (progressCB) {
@@ -66,6 +72,11 @@ public:
 		}
 
 		minio::s3::UploadObjectResponse resp = m_client.UploadObject(args);
+
+		if (isTimeout) {
+			m_errorBuffer = "timeout";
+			return "";
+		}
 
 		// Handle response.
 		if (resp) {
@@ -96,14 +107,20 @@ public:
 		args.bucket = remoteObject->bucket;
 		args.object = remoteObject->objectPath;
 
+		bool isTimeout = false;
 		if (timeoutMS || progressCB) {
-			DWORD st = ::GetTickCount();
+			DWORD st = 0;
 			args.progress_userdata = progressUserData;
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
-				if (timeoutMS && ::GetTickCount() - st > timeoutMS) {
-					m_errorBuffer = "timeout";
-					return false;
+				if (timeoutMS) {
+					if (st == 0) {
+						st = ::GetTickCount();
+					}
+					if (::GetTickCount() - st > timeoutMS) {
+						isTimeout = true;
+						return false;
+					}
 				}
 
 				if (progressCB) {
@@ -118,6 +135,11 @@ public:
 
 		// Call put object.
 		minio::s3::PutObjectResponse resp = m_client.PutObject(args);
+
+		if (isTimeout) {
+			m_errorBuffer = "timeout";
+			return "";
+		}
 
 		// Handle response.
 		if (resp) {
@@ -231,14 +253,20 @@ public:
 		if (version_id) args.version_id = version_id;
 		args.filename = localFilePath;
 
+		bool isTimeout = false;
 		if (timeoutMS || progressCB) {
-			DWORD st = ::GetTickCount();
+			DWORD st = 0;
 			args.progress_userdata = progressUserData;
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
-				if (timeoutMS && ::GetTickCount() - st > timeoutMS) {
-					m_errorBuffer = "timeout";
-					return false;
+				if (timeoutMS) {
+					if (st == 0) {
+						st = ::GetTickCount();
+					}
+					if (::GetTickCount() - st > timeoutMS) {
+						isTimeout = true;
+						return false;
+					}
 				}
 
 				if (progressCB) {
@@ -253,6 +281,11 @@ public:
 
 		// Call download object.
 		minio::s3::DownloadObjectResponse resp = m_client.DownloadObject(args);
+
+		if (isTimeout) {
+			m_errorBuffer = "timeout";
+			return "";
+		}
 
 		// Handle response.
 		if (resp) {
@@ -282,14 +315,20 @@ public:
 			return readCB(args.datachunk.data(), args.datachunk.size(), args.userdata);
 		};
 
+		bool isTimeout = false;
 		if (timeoutMS || progressCB) {
-			DWORD st = ::GetTickCount();
+			DWORD st = 0;
 			args.progress_userdata = progressUserData;
 			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
 
-				if (timeoutMS && ::GetTickCount() - st > timeoutMS) {
-					m_errorBuffer = "timeout";
-					return false;
+				if (timeoutMS) {
+					if (st == 0) {
+						st = ::GetTickCount();
+					}
+					if (::GetTickCount() - st > timeoutMS) {
+						isTimeout = true;
+						return false;
+					}
 				}
 
 				if (progressCB) {
@@ -304,6 +343,11 @@ public:
 
 		// Call get object.
 		minio::s3::GetObjectResponse resp = m_client.GetObject(args);
+
+		if (isTimeout) {
+			m_errorBuffer = "timeout";
+			return "";
+		}
 
 		// Handle response.
 		if (resp) {
