@@ -126,6 +126,7 @@ public:
 	virtual const char* UploadObject(
 		const RemoteObjectStruct* remoteObject,
 		const char* localFilePath,
+		size_t partSize = 0,
 		PFN_ProgressCallback progressCB = NULL,
 		void* progressUserData = NULL,
 		DWORD timeoutMS = 0) = 0;

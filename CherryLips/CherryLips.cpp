@@ -33,6 +33,7 @@ public:
 	virtual const char* UploadObject(
 		const RemoteObjectStruct* remoteObject,
 		const char* localFilePath,
+		size_t partSize = 0,
 		PFN_ProgressCallback progressCB = NULL,
 		void* progressUserData = NULL,
 		DWORD timeoutMS = 0) override {
@@ -44,6 +45,7 @@ public:
 		args.bucket = remoteObject->bucket;
 		args.object = remoteObject->objectPath;
 		args.filename = localFilePath;
+		args.part_size = partSize;
 
 		bool isTimeout = false;
 		DWORD st = 0;

@@ -45,7 +45,7 @@ void testMakeBucket(MinioClient* client) {
 void testUploadObject(MinioClient* client) {
 	std::cout << __FUNCTION__ << std::endl;
 	MinioClient::RemoteObjectStruct dest(BUCKET_NAME, OBJECT_PATH);
-	std::string etag = client->UploadObject(&dest, "CherryLips-Test.cpp", _UploadProgressCallback, NULL, TIMEOUT);
+	std::string etag = client->UploadObject(&dest, "CherryLips-Test.cpp", 0, _UploadProgressCallback, NULL, TIMEOUT);
 	std::cout << etag << std::endl;
 	printError(client);
 }
@@ -177,10 +177,28 @@ void testListObjects(MinioClient* client) {
 }
 
 int main() {
+#if 0
+
 	MinioClient* client = CherryLips::Ins().NewClient(
 		"https://play.min.io", "Q3AM3UQ867SPQQA43P2F",
 		"zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG", NULL);
 
+#else
+
+	MinioClient* client = CherryLips::Ins().NewClient(
+		"http://10.26.43.126:9000", 
+		//"admin", "Mei@vip8899ccmm", 
+		"Q3e24uKiyFMVhuPC","mWa4qGUFB9UhLGwe2Hvc5zri1Bo0jfVb",
+		NULL);
+
+#endif
+
+	MinioClient::RemoteObjectStruct dest("plm-pet", "fv/test123");
+	std::string etag = client->UploadObject(&dest, "D:\\qt4.8_msvc2012_64.zip", 0, _UploadProgressCallback, NULL, 0);
+	std::cout << etag << std::endl;
+	printError(client);
+
+#if 0
 	testMakeBucket(client);
 	testUploadObject(client);
 	testUploadObjectMemory(client);
@@ -195,8 +213,11 @@ int main() {
 	testSetBucketTags(client);
 	testSetObjectTags(client);
 	testListObjects(client);
+#endif
 
 	CherryLips::Ins().FreeClient(&client);
+
+	//getchar();
 
 	return 0;
 }
