@@ -6,6 +6,9 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CherryLips", "CherryLips\CherryLips.vcxproj", "{57D76722-0FD4-4EEB-BF08-57601D8F1D77}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CherryLips-Test", "CherryLips-Test\CherryLips-Test.vcxproj", "{75B2668D-65AD-4B51-9A49-516EF6A7CB08}"
+ProjectSection(ProjectDependencies) = postProject
+		{57D76722-0FD4-4EEB-BF08-57601D8F1D77} = {57D76722-0FD4-4EEB-BF08-57601D8F1D77}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

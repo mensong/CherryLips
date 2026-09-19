@@ -186,16 +186,16 @@ int main() {
 #else
 
 	MinioClient* client = CherryLips::Ins().NewClient(
-		"http://10.26.43.126:9000", 
-		//"admin", "Mei@vip8899ccmm", 
-		"Q3e24uKiyFMVhuPC","mWa4qGUFB9UhLGwe2Hvc5zri1Bo0jfVb",
+		"https://minio-uat.meicloud.com", 
+		"admin", "Mei@vip8899ccmm", 
 		NULL);
 
 #endif
 
-	MinioClient::RemoteObjectStruct dest("plm-pet", "fv/test123");
-	std::string etag = client->UploadObject(&dest, "D:\\qt4.8_msvc2012_64.zip", 0, _UploadProgressCallback, NULL, 0);
-	std::cout << etag << std::endl;
+	MinioClient::RemoteObjectStruct dest("plm-uat", "fv/2026/9/14/220010742743072");
+	bool b = client->DownloadObject(&dest, "d:\\tmp\\1.sldprt", NULL, _UploadProgressCallback);
+	//std::string etag = client->UploadObject(&dest, "D:\\qt4.8_msvc2012_64.zip", 0, _UploadProgressCallback, NULL, 0);
+	std::cout << b << std::endl;
 	printError(client);
 
 #if 0

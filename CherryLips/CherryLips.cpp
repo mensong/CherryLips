@@ -73,7 +73,7 @@ public:
 			};
 		}
 
-		minio::s3::UploadObjectResponse resp = m_client.UploadObject(args);
+		minio::Result<minio::s3::UploadObjectResponse> resp = m_client.UploadObject(args);
 
 		if (isTimeout) {
 			m_errorBuffer = "timeout";
@@ -82,11 +82,11 @@ public:
 
 		// Handle response.
 		if (resp) {
-			m_buffer = resp.etag;
+			m_buffer = resp.value().etag;
 			return m_buffer.c_str();
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return "";
 		}
 	}
@@ -105,7 +105,7 @@ public:
 		std::string sbuf(uploadData, dataLen);
 		std::istringstream iss(sbuf, std::ios_base::binary);
 
-		minio::s3::PutObjectArgs args(iss, (long)dataLen, (long)partSize);
+		minio::s3::PutObjectArgs args(iss, (uint64_t)dataLen, partSize);
 		args.bucket = remoteObject->bucket;
 		args.object = remoteObject->objectPath;
 
@@ -136,7 +136,7 @@ public:
 		}
 
 		// Call put object.
-		minio::s3::PutObjectResponse resp = m_client.PutObject(args);
+		minio::Result<minio::s3::PutObjectResponse> resp = m_client.PutObject(args);
 
 		if (isTimeout) {
 			m_errorBuffer = "timeout";
@@ -145,11 +145,11 @@ public:
 
 		// Handle response.
 		if (resp) {
-			m_buffer = resp.etag;
+			m_buffer = resp.value().etag;
 			return m_buffer.c_str();
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return "";
 		}
 
@@ -165,39 +165,15 @@ public:
 		minio::s3::BucketExistsArgs args;
 		args.bucket = bucket;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call bucket exists.
-		minio::s3::BucketExistsResponse resp = m_client.BucketExists(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::BucketExistsResponse> resp = m_client.BucketExists(args);
 
 		// Handle response.
 		if (resp) {
-			return resp.exist;
+			return resp.value().exist;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 		}
 		return false;
 	}
@@ -225,40 +201,15 @@ public:
 
 		args.sources = lstSources;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call compose object.
-		minio::s3::ComposeObjectResponse resp = m_client.ComposeObject(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::ComposeObjectResponse> resp = m_client.ComposeObject(args);
 
 		// Handle response.
-		bool b = (bool)resp;
 		if (resp) {
-			return b;
+			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -276,39 +227,15 @@ public:
 		copysource.object = source->objectPath;
 		args.source = copysource;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call copy object.
-		minio::s3::CopyObjectResponse resp = m_client.CopyObject(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::CopyObjectResponse> resp = m_client.CopyObject(args);
 
 		// Handle response.
 		if (resp) {
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -355,11 +282,11 @@ public:
 		}
 
 		// Call download object.
-		minio::s3::DownloadObjectResponse resp = m_client.DownloadObject(args);
+		minio::Result<minio::s3::DownloadObjectResponse> resp = m_client.DownloadObject(args);
 
 		if (isTimeout) {
 			m_errorBuffer = "timeout";
-			return "";
+			return false;
 		}
 
 		// Handle response.
@@ -367,7 +294,7 @@ public:
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -417,11 +344,11 @@ public:
 		}
 
 		// Call get object.
-		minio::s3::GetObjectResponse resp = m_client.GetObject(args);
+		minio::Result<minio::s3::GetObjectResponse> resp = m_client.GetObject(args);
 
 		if (isTimeout) {
 			m_errorBuffer = "timeout";
-			return "";
+			return false;
 		}
 
 		// Handle response.
@@ -429,7 +356,7 @@ public:
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -448,41 +375,17 @@ public:
 		args.expiry_seconds = expirySeconds;
 		if (version_id) args.version_id = version_id;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call get presigned object url.
-		minio::s3::GetPresignedObjectUrlResponse resp =
+		minio::Result<minio::s3::GetPresignedObjectUrlResponse> resp =
 			m_client.GetPresignedObjectUrl(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return "";
-		}
 
 		// Handle response.
 		if (resp) {
-			m_buffer = resp.url;
+			m_buffer = resp.value().url;
 			return m_buffer.c_str();
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return "";
 		}
 	}
@@ -493,43 +396,19 @@ public:
 
 		minio::s3::ListBucketsArgs args;
 		
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call list buckets.
-		minio::s3::ListBucketsResponse resp = m_client.ListBuckets(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::ListBucketsResponse> resp = m_client.ListBuckets(args);
 
 		// Handle response.
 		if (resp) {
-			for (auto& bucket : resp.buckets) {
+			for (auto& bucket : resp.value().buckets) {
 				cb(bucket.name.c_str(), userData);
 				//bucket.creation_date.ToHttpHeaderValue()
 			}
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -549,38 +428,14 @@ public:
 		args.include_versions = include_versions;
 		if (objectPathPrefix) args.prefix = objectPathPrefix;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call list objects.
 		minio::s3::ListObjectsResult result = m_client.ListObjects(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return "";
-		}
 
 		nlohmann::json jarrObjects = nlohmann::json::array();
 
 		for (; result; result++) {
 			minio::s3::Item item = *result;
-			if (item) {
+			if (item.code.empty()) {
 
 				nlohmann::json jItem;
 				jItem["name"] = item.name;
@@ -624,39 +479,15 @@ public:
 		minio::s3::MakeBucketArgs args;
 		args.bucket = bucketName;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call make bucket.
-		minio::s3::MakeBucketResponse resp = m_client.MakeBucket(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::MakeBucketResponse> resp = m_client.MakeBucket(args);
 
 		// Handle response.
 		if (resp) {
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -669,39 +500,15 @@ public:
 		minio::s3::RemoveBucketArgs args;
 		args.bucket = bucketName;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call remove bucket.
-		minio::s3::RemoveBucketResponse resp = m_client.RemoveBucket(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::RemoveBucketResponse> resp = m_client.RemoveBucket(args);
 
 		// Handle response.
 		if (resp) {
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -717,39 +524,15 @@ public:
 		args.object = remoteObject->objectPath;
 		if (version_id) args.version_id = version_id;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call remove object.
-		minio::s3::RemoveObjectResponse resp = m_client.RemoveObject(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::RemoveObjectResponse> resp = m_client.RemoveObject(args);
 
 		// Handle response.
 		if (resp) {
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -780,39 +563,15 @@ public:
 			p += (curLen + 1);
 		}
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call set bucket tags.
-		minio::s3::SetBucketTagsResponse resp = m_client.SetBucketTags(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::SetBucketTagsResponse> resp = m_client.SetBucketTags(args);
 
 		// Handle response.
 		if (resp) {
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -848,39 +607,15 @@ public:
 			p += (curLen + 1);
 		}
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call set object tags.
-		minio::s3::SetObjectTagsResponse resp = m_client.SetObjectTags(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::SetObjectTagsResponse> resp = m_client.SetObjectTags(args);
 
 		// Handle response.
 		if (resp) {
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -894,42 +629,18 @@ public:
 		minio::s3::GetBucketTagsArgs args;
 		args.bucket = bucketName;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call get bucket tags.
-		minio::s3::GetBucketTagsResponse resp = m_client.GetBucketTags(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::GetBucketTagsResponse> resp = m_client.GetBucketTags(args);
 
 		// Handle response.
 		if (resp) {
-			for (auto& [key, value] : resp.tags) {
+			for (auto& [key, value] : resp.value().tags) {
 				cb(key.c_str(), value.c_str(), userData);
 			}
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -946,42 +657,18 @@ public:
 		args.object = remoteObject->objectPath;
 		if (version_id) args.version_id = version_id;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call get object tags.
-		minio::s3::GetObjectTagsResponse resp = m_client.GetObjectTags(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::GetObjectTagsResponse> resp = m_client.GetObjectTags(args);
 
 		// Handle response.
 		if (resp) {
-			for (auto& [key, value] : resp.tags) {
+			for (auto& [key, value] : resp.value().tags) {
 				cb(key.c_str(), value.c_str(), userData);
 			}
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -995,39 +682,15 @@ public:
 		minio::s3::DeleteBucketTagsArgs args;
 		args.bucket = bucketName;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call delete bucket tags.
-		minio::s3::DeleteBucketTagsResponse resp = m_client.DeleteBucketTags(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::DeleteBucketTagsResponse> resp = m_client.DeleteBucketTags(args);
 
 		// Handle response.
 		if (resp) {
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
@@ -1043,39 +706,15 @@ public:
 		args.object = remoteObject->objectPath;
 		if (version_id) args.version_id = version_id;
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (timeoutMS) {
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
-
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
-					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
-					}
-				}
-
-				return true;
-			};
-		}
-
 		// Call delete object tags.
-		minio::s3::DeleteObjectTagsResponse resp = m_client.DeleteObjectTags(args);
-
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
-			return false;
-		}
+		minio::Result<minio::s3::DeleteObjectTagsResponse> resp = m_client.DeleteObjectTags(args);
 
 		// Handle response.
 		if (resp) {
 			return true;
 		}
 		else {
-			m_errorBuffer = resp.Error().String();
+			m_errorBuffer = resp.error().String();
 			return false;
 		}
 	}
