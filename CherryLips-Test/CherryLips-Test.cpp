@@ -192,9 +192,12 @@ int main() {
 
 #endif
 
-	MinioClient::RemoteObjectStruct dest("plm-uat", "fv/2026/9/14/220010742743072");
-	bool b = client->DownloadObject(&dest, "d:\\tmp\\1.sldprt", NULL, _UploadProgressCallback);
-	//std::string etag = client->UploadObject(&dest, "D:\\qt4.8_msvc2012_64.zip", 0, _UploadProgressCallback, NULL, 0);
+	MinioClient::RemoteObjectStruct dest("plm-uat", "fv/2026/9/19/mensong");
+
+	std::string etag = client->UploadObject(&dest, "D:\\working\\File\\220259908307504\\document\\AX.G92.TP.0060.00-1.SLDPRT", 0, _UploadProgressCallback, NULL, 0);
+	printError(client);
+	
+	bool b = client->DownloadObject(&dest, "d:\\tmp\\AX.G92.TP.0060.00-1.SLDPRT", NULL, _UploadProgressCallback);
 	std::cout << b << std::endl;
 	printError(client);
 

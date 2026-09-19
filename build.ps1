@@ -190,7 +190,9 @@ if (-not (Test-Path (Join-Path $ZlibPrefix 'lib\zlib.lib'))) {
 }
 # Distribute to flat deps dirs (always run -- idempotent).
 if (-not (Test-Path (Join-Path $DepsLib 'zlib.lib'))) {
-    Copy-Item (Join-Path $ZlibPrefix 'lib\zlib.lib')    $DepsLib -Force
+    # zlib's CMake installs the shared import lib as lib\zlib.lib and the
+    # real static lib as lib\zlibstatic.lib; distribute the static one.
+    Copy-Item (Join-Path $ZlibPrefix 'lib\zlibstatic.lib') (Join-Path $DepsLib 'zlib.lib') -Force
     Copy-Item (Join-Path $ZlibPrefix 'include\zlib.h')  $DepsInc -Force
     Copy-Item (Join-Path $ZlibPrefix 'include\zconf.h') $DepsInc -Force
     Write-Host '  Distributed zlib to deps.'
@@ -360,7 +362,9 @@ if (-not (Test-Path (Join-Path $DepsLib 'minio.lib'))) {
         "-DCMAKE_PREFIX_PATH=$prefixPaths",
         '-DBUILD_SHARED_LIBS=OFF',
         '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded',
-        '-DMINIO_CPP_TEST=OFF'
+        '-DMINIO_CPP_TEST=OFF',
+        "-DZLIB_LIBRARY=$DepsLib\zlib.lib",
+        "-DZLIB_INCLUDE_DIR=$DepsInc"
     )
     Invoke-Checked $script:CMake @('--build', $minioBuild, '--config', 'Release', '--', '/m')
     $minioLib = Join-Path $minioBuild 'Release\minio.lib'
@@ -368,6 +372,64 @@ if (-not (Test-Path (Join-Path $DepsLib 'minio.lib'))) {
     Copy-Item $minioLib $DepsLib -Force
     Write-Host '  Built and distributed minio-cpp.'
 } else { Write-Host '  minio-cpp already built, skipping.' }
+
+# ---------------------------------------------------------------------------
+# Debug variants of the C++ dependencies (/MTd)
+#
+# CherryLips Debug links with /MTd and MSVC's LNK2038 check requires C++
+# dependency objects to match.  zlib and OpenSSL are pure C (no /FAILIFMISMATCH
+# records) and are reused from the release build; their CRT references resolve
+# to the debug CRT via IgnoreSpecificDefaultLibraries in the vcxproj.
+# ---------------------------------------------------------------------------
+if ($Config -eq 'Debug') {
+    New-Item -ItemType Directory -Force -Path (Join-Path $DepsLib 'Debug') | Out-Null
+
+    Write-Step 'Building pugixml 1.14 (Debug /MTd)'
+    $pugiPrefixD = Join-Path $DepsDir 'pugixml-install-Debug'
+    if (-not (Test-Path (Join-Path $pugiPrefixD 'lib\pugixml.lib'))) {
+        $pugiBuildD = Join-Path $DepsSrc 'pugixml-build-Debug'
+        if (Test-Path $pugiBuildD) { Remove-Item $pugiBuildD -Recurse -Force }
+        Invoke-Checked $script:CMake @(
+            '-S', $pugiSrc, '-B', $pugiBuildD,
+            '-G', '"Visual Studio 17 2022"', '-A', 'x64',
+            "-DCMAKE_INSTALL_PREFIX=$pugiPrefixD",
+            '-DBUILD_SHARED_LIBS=OFF',
+            '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebug'
+        )
+        Invoke-Checked $script:CMake @('--build', $pugiBuildD, '--config', 'Debug', '--', '/m')
+        Invoke-Checked $script:CMake @('--install', $pugiBuildD, '--config', 'Debug')
+    }
+    Copy-Item (Join-Path $pugiPrefixD 'lib\pugixml.lib') (Join-Path $DepsLib 'Debug\pugixml.lib') -Force
+
+    Write-Step 'Building inih r58 (Debug /MTd)'
+    if (-not (Test-Path (Join-Path $DepsLib 'Debug\inih.lib'))) {
+        Invoke-Checked cl.exe @('/c', '/MTd', '/Zi', '/Od', '/EHsc', '/W3',
+            '/D_CRT_SECURE_NO_WARNINGS', '/I.', '/Icpp', 'ini.c') $inihSrc
+        Invoke-Checked cl.exe @('/c', '/MTd', '/Zi', '/Od', '/EHsc', '/W3',
+            '/D_CRT_SECURE_NO_WARNINGS', '/I.', '/Icpp', '/FoINIReader.obj',
+            'cpp\INIReader.cpp', '/TP') $inihSrc
+        Invoke-Checked lib.exe @("/OUT:$(Join-Path $DepsLib 'Debug\inih.lib')",
+            'ini.obj', 'INIReader.obj') $inihSrc
+    }
+
+    Write-Step 'Building minio-cpp (Debug /MTd)'
+    $minioBuildD = Join-Path $DepsSrc 'minio-cpp-build-Debug'
+    if (-not (Test-Path (Join-Path $DepsLib 'Debug\minio.lib'))) {
+        $prefixPathsD = @($ZlibPrefix, $OpensslPrefix, $pugiPrefixD, $DepsLocal) -join ';'
+        Invoke-Checked $script:CMake @(
+            '-S', $MinioSrc, '-B', $minioBuildD,
+            '-G', '"Visual Studio 17 2022"', '-A', 'x64',
+            "-DCMAKE_PREFIX_PATH=$prefixPathsD",
+            '-DBUILD_SHARED_LIBS=OFF',
+            '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebug',
+            '-DMINIO_CPP_TEST=OFF',
+            "-DZLIB_LIBRARY=$DepsLib\zlib.lib",
+            "-DZLIB_INCLUDE_DIR=$DepsInc"
+        )
+        Invoke-Checked $script:CMake @('--build', $minioBuildD, '--config', 'Debug', '--', '/m')
+        Copy-Item (Join-Path $minioBuildD 'Debug\minio.lib') (Join-Path $DepsLib 'Debug\minio.lib') -Force
+    }
+}
 
 # ---------------------------------------------------------------------------
 # Build CherryLips solution
