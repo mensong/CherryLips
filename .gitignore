@@ -2,4 +2,11 @@
 /CherryLips/x64
 /CherryLips-Test/x64
 /x64
-/deps
+# deps/ holds build outputs; dependency sources are git submodules
+/deps/*
+!/deps/zlib
+!/deps/openssl
+!/deps/pugixml
+!/deps/inih
+!/deps/nlohmann-json
+!/deps/cpp-httplib

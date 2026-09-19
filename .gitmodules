@@ -1,3 +1,21 @@
 [submodule "minio-cpp"]
 	path = minio-cpp
 	url = https://github.com/minio/minio-cpp.git
+[submodule "deps/zlib"]
+	path = deps/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "deps/cpp-httplib"]
+	path = deps/cpp-httplib
+	url = https://github.com/yhirose/cpp-httplib.git
+[submodule "deps/inih"]
+	path = deps/inih
+	url = https://github.com/benhoyt/inih.git
+[submodule "deps/openssl"]
+	path = deps/openssl
+	url = https://github.com/openssl/openssl.git
+[submodule "deps/pugixml"]
+	path = deps/pugixml
+	url = https://github.com/zeux/pugixml.git
+[submodule "deps/nlohmann-json"]
+	path = deps/nlohmann-json
+	url = https://github.com/nlohmann/json.git

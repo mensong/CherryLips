@@ -7,6 +7,11 @@
   and CherryLips-Test.exe.  Designed to run on a fresh checkout of the repo
   on another machine that has Visual Studio 2022 + CMake + Git installed.
 
+  Dependency sources (zlib, OpenSSL, pugixml, inih, nlohmann-json,
+  cpp-httplib, minio-cpp) are git submodules.  Clone with
+  "git clone --recurse-submodules" or run "git submodule update --init"
+  before building.
+
 .PARAMETER Config
   Build configuration: "Release" (default) or "Debug".
 
@@ -60,10 +65,14 @@ function Write-Step([string]$msg) {
 function Invoke-Checked([string]$exe, [string[]]$cmdArgs, [string]$wd = $RepoRoot) {
     Write-Host "  > $exe $($cmdArgs -join ' ')"
     Push-Location $wd
-    & $exe @cmdArgs
-    $code = $LASTEXITCODE
-    Pop-Location
-    if ($code -ne 0) { throw "Command failed (exit $code): $exe $($cmdArgs -join ' ')" }
+    # Native tools (cmake, MSBuild) write warnings to stderr; PS 5.1 turns
+    # those into ErrorRecords which would abort under EAP=Stop.  Relax EAP
+    # around the invocation and rely on the exit code instead.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $exe @cmdArgs }
+    finally { $ErrorActionPreference = $prevEap; Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw "Command failed (exit $LASTEXITCODE): $exe $($cmdArgs -join ' ')" }
 }
 
 # Copy a directory tree (replaces destination if it exists).
@@ -164,10 +173,10 @@ if ($CleanDeps) {
 # Build zlib (static /MT)
 # ---------------------------------------------------------------------------
 Write-Step 'Building zlib 1.3.1 (static /MT)'
-$zlibSrc   = Join-Path $DepsSrc 'zlib-1.3.1'
+$zlibSrc   = Join-Path $DepsDir 'zlib'
 $zlibBuild = Join-Path $DepsSrc 'zlib-build'
 if (-not (Test-Path (Join-Path $ZlibPrefix 'lib\zlib.lib'))) {
-    if (-not (Test-Path $zlibSrc)) { throw "zlib source not found at $zlibSrc." }
+    if (-not (Test-Path $zlibSrc)) { throw "zlib source not found at $zlibSrc. Run: git submodule update --init" }
     if (Test-Path $zlibBuild) { Remove-Item $zlibBuild -Recurse -Force }
     Invoke-Checked $script:CMake @(
         '-S', $zlibSrc, '-B', $zlibBuild,
@@ -191,20 +200,15 @@ if (-not (Test-Path (Join-Path $DepsLib 'zlib.lib'))) {
 # Build OpenSSL (static /MT, no-asm, no-shared)
 # ---------------------------------------------------------------------------
 Write-Step 'Building OpenSSL 3.4.0 (static /MT, no-shared)'
-$opensslSrc = Join-Path $DepsSrc 'openssl-3.4.0'
+$opensslSrc = Join-Path $DepsDir 'openssl'
 if (-not (Test-Path (Join-Path $OpensslPrefix 'lib\libcrypto.lib'))) {
-    if (-not (Test-Path $opensslSrc)) { throw "OpenSSL source not found at $opensslSrc." }
-    Push-Location $opensslSrc
-    & $script:Perl 'Configure' 'VC-WIN64A' 'no-asm' 'no-shared' `
-        "--prefix=$OpensslPrefix" `
-        "--openssldir=$OpensslPrefix" `
-        '-static' '/MT'
-    if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'OpenSSL Configure failed.' }
-    & nmake 'build_libs'
-    if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'OpenSSL nmake build_libs failed.' }
-    & nmake 'install_dev'
-    if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'OpenSSL nmake install_dev failed.' }
-    Pop-Location
+    if (-not (Test-Path $opensslSrc)) { throw "OpenSSL source not found at $opensslSrc. Run: git submodule update --init" }
+    Invoke-Checked $script:Perl @('Configure', 'VC-WIN64A', 'no-asm', 'no-shared',
+        "--prefix=$OpensslPrefix",
+        "--openssldir=$OpensslPrefix",
+        '-static', '/MT') $opensslSrc
+    Invoke-Checked nmake @('build_libs') $opensslSrc
+    Invoke-Checked nmake @('install_dev') $opensslSrc
 }
 # Distribute to flat deps dirs (always run -- idempotent).
 if (-not (Test-Path (Join-Path $DepsLib 'libcrypto.lib'))) {
@@ -218,10 +222,10 @@ if (-not (Test-Path (Join-Path $DepsLib 'libcrypto.lib'))) {
 # Build pugixml (static /MT)
 # ---------------------------------------------------------------------------
 Write-Step 'Building pugixml 1.14 (static /MT)'
-$pugiSrc   = Join-Path $DepsSrc 'pugixml-1.14'
+$pugiSrc   = Join-Path $DepsDir 'pugixml'
 $pugiBuild = Join-Path $DepsSrc 'pugixml-build'
 if (-not (Test-Path (Join-Path $PugixmlPrefix 'lib\pugixml.lib'))) {
-    if (-not (Test-Path $pugiSrc)) { throw "pugixml source not found at $pugiSrc." }
+    if (-not (Test-Path $pugiSrc)) { throw "pugixml source not found at $pugiSrc. Run: git submodule update --init" }
     if (Test-Path $pugiBuild) { Remove-Item $pugiBuild -Recurse -Force }
     Invoke-Checked $script:CMake @(
         '-S', $pugiSrc, '-B', $pugiBuild,
@@ -245,20 +249,14 @@ if (-not (Test-Path (Join-Path $DepsLib 'pugixml.lib'))) {
 # Build inih (static /MT, using cl.exe directly)
 # ---------------------------------------------------------------------------
 Write-Step 'Building inih r58 (static /MT)'
-$inihSrc = Join-Path $DepsSrc 'inih-r58'
+$inihSrc = Join-Path $DepsDir 'inih'
 if (-not (Test-Path (Join-Path $DepsLib 'inih.lib'))) {
-    if (-not (Test-Path $inihSrc)) { throw "inih source not found at $inihSrc." }
-   Push-Location $inihSrc
-   & cl.exe /c /MT /O2 /EHsc /W3 /D_CRT_SECURE_NO_WARNINGS `
-       /I. /Icpp ini.c
-   if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'inih: cl.exe compile of ini.c failed.' }
-   & cl.exe /c /MT /O2 /EHsc /W3 /D_CRT_SECURE_NO_WARNINGS `
-        /I. /Icpp /FoINIReader.obj `
-       cpp\INIReader.cpp /TP
-    if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'inih: cl.exe compile of INIReader.cpp failed.' }
-    & lib.exe /OUT:inih.lib ini.obj INIReader.obj
-    if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'inih: lib.exe failed.' }
-    Pop-Location
+    if (-not (Test-Path $inihSrc)) { throw "inih source not found at $inihSrc. Run: git submodule update --init" }
+    Invoke-Checked cl.exe @('/c', '/MT', '/O2', '/EHsc', '/W3', '/D_CRT_SECURE_NO_WARNINGS',
+        '/I.', '/Icpp', 'ini.c') $inihSrc
+    Invoke-Checked cl.exe @('/c', '/MT', '/O2', '/EHsc', '/W3', '/D_CRT_SECURE_NO_WARNINGS',
+        '/I.', '/Icpp', '/FoINIReader.obj', 'cpp\INIReader.cpp', '/TP') $inihSrc
+    Invoke-Checked lib.exe @('/OUT:inih.lib', 'ini.obj', 'INIReader.obj') $inihSrc
     Copy-Item (Join-Path $inihSrc 'inih.lib')     $DepsLib -Force
     Copy-Item (Join-Path $inihSrc 'ini.h')        $DepsInc -Force
     Copy-Item (Join-Path $inihSrc 'cpp\INIReader.h') $DepsInc -Force
@@ -272,18 +270,18 @@ Write-Step 'Setting up header-only libraries (nlohmann-json, cpp-httplib)'
 
 # nlohmann-json
 if (-not (Test-Path (Join-Path $DepsInc 'nlohmann\json.hpp'))) {
-   $jsonSrc = Join-Path $DepsSrc 'nlohmann-json-include'
-   if (-not (Test-Path $jsonSrc)) { throw "nlohmann-json source not found at $jsonSrc." }
+   $jsonSrc = Join-Path $DepsDir 'nlohmann-json'
+   if (-not (Test-Path $jsonSrc)) { throw "nlohmann-json source not found at $jsonSrc. Run: git submodule update --init" }
     Copy-Dir (Join-Path $jsonSrc 'include\nlohmann') (Join-Path $DepsInc 'nlohmann')
     Write-Host '  Copied nlohmann-json headers.'
 } else { Write-Host '  nlohmann-json already present, skipping.' }
 
 # cpp-httplib (header-only, just copy the single header)
 if (-not (Test-Path (Join-Path $DepsInc 'httplib.h'))) {
-    $httplibSrc = Get-ChildItem -Path $DepsSrc, $MinioSrc -Filter 'httplib.h' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($httplibSrc) {
-        Copy-Item $httplibSrc.FullName $DepsInc -Force
-        Write-Host "  Copied httplib.h from $($httplibSrc.FullName)"
+    $httplibSrc = Join-Path $DepsDir 'cpp-httplib\httplib.h'
+    if (Test-Path $httplibSrc) {
+        Copy-Item $httplibSrc $DepsInc -Force
+        Write-Host '  Copied httplib.h from cpp-httplib submodule.'
     } else {
         Write-Host '  httplib.h not found locally, downloading from GitHub...'
         $url = 'https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.53.1/httplib.h'
@@ -353,7 +351,7 @@ Write-Host '  CMake config files written.'
 Write-Step 'Building minio-cpp (static /MT)'
 $minioBuild = Join-Path $DepsSrc 'minio-cpp-build'
 if (-not (Test-Path (Join-Path $DepsLib 'minio.lib'))) {
-    if (-not (Test-Path $MinioSrc)) { throw "minio-cpp source not found at $MinioSrc." }
+    if (-not (Test-Path $MinioSrc)) { throw "minio-cpp source not found at $MinioSrc. Run: git submodule update --init" }
     if (Test-Path $minioBuild) { Remove-Item $minioBuild -Recurse -Force }
     $prefixPaths = @($ZlibPrefix, $OpensslPrefix, $PugixmlPrefix, $DepsLocal) -join ';'
     Invoke-Checked $script:CMake @(
