@@ -104,11 +104,24 @@ $perlInPath = Get-Command perl.exe -ErrorAction SilentlyContinue
 if ($perlInPath) {
     $script:Perl = $perlInPath.Source
 } else {
+    $perlRoot = Join-Path $DepsDir 'strawberry-perl'
     $bundledPerl = Join-Path $DepsDir 'strawberry-perl\perl\bin\perl.exe'
     if (Test-Path $bundledPerl) {
         $script:Perl = $bundledPerl
     } else {
-        throw 'Perl not found. Either install Strawberry Perl or extract deps\strawberry-perl-portable.zip.'
+        $perlZip = Join-Path $DepsDir 'strawberry-perl-portable.zip'
+        if (-not (Test-Path $perlZip)) {
+            Write-Host '  Strawberry Perl not found, downloading portable release...'
+            $perlUrl = 'https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_54231_64bit/strawberry-perl-5.42.3.1-64bit-portable.zip'
+            Invoke-WebRequest -Uri $perlUrl -OutFile $perlZip
+        }
+
+        Write-Host '  Extracting Strawberry Perl...'
+        Expand-Archive -LiteralPath $perlZip -DestinationPath $perlRoot -Force
+        if (-not (Test-Path $bundledPerl)) {
+            throw "Strawberry Perl was not extracted to the expected path: $bundledPerl"
+        }
+        $script:Perl = $bundledPerl
     }
 }
 
