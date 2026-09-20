@@ -121,7 +121,7 @@ public:
 		void* userData);
 
 public:
-	virtual ~MinioClient() = default;
+	virtual ~MinioClient() {}
 
 	virtual const char* GetLastError() = 0;
 
