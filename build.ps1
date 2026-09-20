@@ -133,6 +133,17 @@ if (-not $script:CMake) { throw 'cmake.exe not found on PATH. Install CMake and 
 $script:Git = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
 if (-not $script:Git) { throw 'git.exe not found on PATH.' }
 
+# A plain clone leaves the top-level build submodules as empty directories.
+# Initialize only those; OpenSSL's nested submodules are not needed here and
+# locally checked-out submodules are never overwritten.
+$submoduleStatus = & $script:Git @('submodule', 'status')
+if ($LASTEXITCODE -ne 0) { throw 'Unable to query git submodule status.' }
+$uninitialized = @($submoduleStatus | Where-Object { $_ -match '^- ' })
+if ($uninitialized.Count -gt 0) {
+    Write-Host '  Initializing missing Git submodules...'
+    Invoke-Checked $script:Git @('submodule', 'update', '--init')
+}
+
 Write-Host "  MSBuild : $($script:MSBuild)"
 Write-Host "  CMake   : $($script:CMake)"
 Write-Host "  Perl    : $($script:Perl)"
