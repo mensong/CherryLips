@@ -138,7 +138,7 @@ if (-not $script:Git) { throw 'git.exe not found on PATH.' }
 # locally checked-out submodules are never overwritten.
 $submoduleStatus = & $script:Git @('submodule', 'status')
 if ($LASTEXITCODE -ne 0) { throw 'Unable to query git submodule status.' }
-$uninitialized = @($submoduleStatus | Where-Object { $_ -match '^- ' })
+$uninitialized = @($submoduleStatus | Where-Object { $_ -like '-*' })
 if ($uninitialized.Count -gt 0) {
     Write-Host '  Initializing missing Git submodules...'
     Invoke-Checked $script:Git @('submodule', 'update', '--init')
