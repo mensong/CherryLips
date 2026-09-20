@@ -36,6 +36,21 @@ bool _UploadProgressCallback(
 	return true;
 }
 
+bool _DownloadProgressCallback(
+	double download_total_bytes,
+	double downloaded_bytes,
+	double download_speed,
+	double upload_total_bytes,
+	double uploaded_bytes,
+	double upload_speed, void* userdata)
+{
+	if (download_total_bytes != 0) {
+		double percent = downloaded_bytes / download_total_bytes * 100;
+		printf("\n%.2f%%", percent);
+	}
+	return true;
+}
+
 void testMakeBucket(MinioClient* client) { 
 	std::cout << __FUNCTION__ << std::endl;
 	client->MakeBucket(BUCKET_NAME, TIMEOUT); 
@@ -193,12 +208,21 @@ int main() {
 #endif
 
 	MinioClient::RemoteObjectStruct dest("plm-uat", "fv/2026/9/19/mensong");
-
-	std::string etag = client->UploadObject(&dest, "D:\\working\\File\\220259908307504\\document\\AX.G92.TP.0060.00-1.SLDPRT", 0, _UploadProgressCallback, NULL, 0);
+	std::string etag = client->UploadObject(
+		&dest, 
+		"D:\\working\\File\\220259908307504\\document\\AX.G92.TP.0060.00-1.SLDPRT", 
+		0, 
+		_UploadProgressCallback, 
+		NULL, 
+		0);	
 	printError(client);
 	
-	bool b = client->DownloadObject(&dest, "d:\\tmp\\AX.G92.TP.0060.00-1.SLDPRT", NULL, _UploadProgressCallback);
-	std::cout << b << std::endl;
+	bool b = client->DownloadObject(
+		&dest, 
+		"d:\\tmp\\AX.G92.TP.0060.00-1.SLDPRT", 
+		NULL, 
+		_DownloadProgressCallback
+	);
 	printError(client);
 
 #if 0
