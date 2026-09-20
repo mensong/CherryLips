@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "CherryLips.h"
+#include <fstream>
 #include <sstream>
 #include <miniocpp/client.h>
 #include <nlohmann/json.hpp>
@@ -28,7 +29,17 @@ public:
 		}
 	}
 
-	const char* GetLastError() override { return m_errorBuffer.c_str(); }
+	const char* GetLastError() override {
+		try { return m_errorBuffer.c_str();
+	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return "";
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return "";
+		}}
 
 	virtual const char* UploadObject(
 		const RemoteObjectStruct* remoteObject,
@@ -40,53 +51,69 @@ public:
 		m_errorBuffer.clear();
 		if (!remoteObject || !localFilePath) return "";
 
-		// Create upload object arguments.
-		minio::s3::UploadObjectArgs args;
-		args.bucket = remoteObject->bucket;
-		args.object = remoteObject->objectPath;
-		args.filename = localFilePath;
-		args.part_size = partSize;
+		try {
+			// minio-cpp's UploadObject(filename) opens the file in text mode,
+			// which corrupts binary uploads on Windows (CRLF translation and
+			// 0x1A truncation).  Open the stream here in binary mode instead.
+			std::ifstream file(localFilePath, std::ios::binary);
+			if (!file) {
+				m_errorBuffer = "unable to open file ";
+				m_errorBuffer += localFilePath;
+				return "";
+			}
 
-		bool isTimeout = false;
-		DWORD st = 0;
-		if (progressCB || timeoutMS) {			
-			args.progress_userdata = progressUserData;
-			args.progressfunc = [&](minio::http::ProgressFunctionArgs args) -> bool {
+			file.seekg(0, std::ios::end);
+			uint64_t objectSize = (uint64_t)file.tellg();
+			file.seekg(0, std::ios::beg);
 
-				if (timeoutMS) {
-					if (st == 0) {
-						st = ::GetTickCount();
+			minio::s3::PutObjectArgs args(file, objectSize, partSize);
+			args.bucket = remoteObject->bucket;
+			args.object = remoteObject->objectPath;
+
+			bool isTimeout = false;
+			DWORD st = 0;
+			if (progressCB || timeoutMS) {
+				args.progress_userdata = progressUserData;
+				args.progressfunc = [&](minio::http::ProgressFunctionArgs pargs) -> bool {
+					if (timeoutMS) {
+						if (st == 0) {
+							st = ::GetTickCount();
+						}
+						if (::GetTickCount() - st > timeoutMS) {
+							isTimeout = true;
+							return false;
+						}
 					}
-					if (::GetTickCount() - st > timeoutMS) {
-						isTimeout = true;
-						return false;
+					if (progressCB) {
+						return progressCB(pargs.download_total_bytes, pargs.downloaded_bytes,
+							pargs.download_speed, pargs.upload_total_bytes,
+							pargs.uploaded_bytes, pargs.upload_speed, pargs.userdata);
 					}
-				}
+					return true;
+				};
+			}
 
-				if (progressCB) {
-					return progressCB(args.download_total_bytes, args.downloaded_bytes,
-						args.download_speed, args.upload_total_bytes,
-						args.uploaded_bytes, args.upload_speed, args.userdata);
-				}
-				
-				return true;
-			};
-		}
+			minio::Result<minio::s3::PutObjectResponse> resp = m_client.PutObject(args);
 
-		minio::Result<minio::s3::UploadObjectResponse> resp = m_client.UploadObject(args);
+			if (isTimeout) {
+				m_errorBuffer = "timeout";
+				return "";
+			}
 
-		if (isTimeout) {
-			m_errorBuffer = "timeout";
+			if (resp) {
+				m_buffer = resp.value().etag;
+				return m_buffer.c_str();
+			}
+
+			m_errorBuffer = resp.error().String();
 			return "";
 		}
-
-		// Handle response.
-		if (resp) {
-			m_buffer = resp.value().etag;
-			return m_buffer.c_str();
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return "";
 		}
-		else {
-			m_errorBuffer = resp.error().String();
+		catch (...) {
+			m_errorBuffer = "unknown exception";
 			return "";
 		}
 	}
@@ -98,6 +125,7 @@ public:
 		PFN_ProgressCallback progressCB = NULL,
 		void* progressUserData = NULL,
 		DWORD timeoutMS = 0) override {
+		try {
 
 		m_errorBuffer.clear();
 		if (!remoteObject || !uploadData || dataLen == 0) return "";
@@ -153,9 +181,19 @@ public:
 			return "";
 		}
 
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return "";
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return "";
+		}}
 
 	bool IsBucketExists(const char* bucket,	DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 
 		if (!bucket) {
@@ -176,12 +214,22 @@ public:
 			m_errorBuffer = resp.error().String();
 		}
 		return false;
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool ComposeObject(
-		const RemoteObjectStruct* dest, 
+		const RemoteObjectStruct* dest,
 		const RemoteObjectStruct* arrSources,
 		int sourcesCount, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!dest || !arrSources || sourcesCount < 2) return false;
 
@@ -212,10 +260,20 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool CopyObject(const RemoteObjectStruct* dest,
 		const RemoteObjectStruct* source, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		// Create copy object arguments.
 		minio::s3::CopyObjectArgs args;
@@ -238,7 +296,16 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool DownloadObject(const RemoteObjectStruct* remoteObject,
 		const char* localFilePath,
@@ -246,6 +313,7 @@ public:
 		PFN_ProgressCallback progressCB = NULL,
 		void* progressUserData = NULL,
 		DWORD timeoutMS = 0) override {
+		try {
 
 		m_errorBuffer.clear();
 		// Create download object arguments.
@@ -297,7 +365,16 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool ReadObject(const RemoteObjectStruct* remoteObject,
 		PFN_ReadObjectCallback readCB,
@@ -305,6 +382,7 @@ public:
 		void* readUserData = 0, void* progressUserData = 0,
 		const char* version_id = NULL,
 		DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!remoteObject || !readCB) return false;
 		// Create get object arguments.
@@ -359,11 +437,21 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	const char* GenerateObjectUrl(const RemoteObjectStruct* remoteObject,
 		unsigned int expirySeconds, Method method = Method::kGet,
 		const char* version_id = NULL, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!remoteObject) return "";
 
@@ -388,14 +476,24 @@ public:
 			m_errorBuffer = resp.error().String();
 			return "";
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return "";
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return "";
+		}}
 
 	bool ListBuckets(PFN_ListBucketsCallback cb, void* userData = NULL, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!cb) return false;
 
 		minio::s3::ListBucketsArgs args;
-		
+
 		// Call list buckets.
 		minio::Result<minio::s3::ListBucketsResponse> resp = m_client.ListBuckets(args);
 
@@ -411,11 +509,21 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	const char* ListObjects(const char* bucket, const char* objectPathPrefix,
 		bool recursive = false, bool include_versions = false,
 		bool fetch_owner = false, bool include_user_metadata = false, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!bucket) return "[]";
 
@@ -469,9 +577,19 @@ public:
 
 		m_buffer = jarrObjects.dump();
 		return m_buffer.c_str();
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return "";
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return "";
+		}}
 
 	bool MakeBucket(const char* bucketName, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!bucketName) return false;
 
@@ -490,9 +608,19 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool RemoveBucket(const char* bucketName, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!bucketName) return false;
 
@@ -511,10 +639,20 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool RemoveObject(const RemoteObjectStruct* remoteObject,
 		const char* version_id = NULL, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!remoteObject) return false;
 
@@ -535,10 +673,20 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool SetBucketTags(const char* bucketName,
 		const char* keyvalueListStr, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!bucketName || !keyvalueListStr) return false;
 
@@ -574,12 +722,22 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 
 	bool SetObjectTags(const RemoteObjectStruct* remoteObject,
 		const char* keyvalueListStr,
 		const char* version_id = NULL, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!remoteObject || !keyvalueListStr) return false;
 
@@ -618,10 +776,20 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool GetBucketTags(const char* bucketName, PFN_GetTagsCallback cb,
 		void* userData = NULL, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!bucketName || !cb) return false;
 
@@ -643,11 +811,21 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool GetObjectTags(const RemoteObjectStruct* remoteObject,
 		PFN_GetTagsCallback cb, void* userData = NULL,
 		const char* version_id = NULL, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!remoteObject || !cb) return false;
 
@@ -671,10 +849,20 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 
 	bool RemoveBucketTags(const char* bucketName, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!bucketName) return false;
 
@@ -693,10 +881,20 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 	bool RemoveObjectTags(const RemoteObjectStruct* remoteObject,
 		const char* version_id = NULL, DWORD timeoutMS = 0) override {
+		try {
 		m_errorBuffer.clear();
 		if (!remoteObject) return false;
 
@@ -717,7 +915,16 @@ public:
 			m_errorBuffer = resp.error().String();
 			return false;
 		}
+
 	}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}}
 
 };
 
