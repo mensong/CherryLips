@@ -121,6 +121,8 @@ public:
 		void* userData);
 
 public:
+	virtual ~MinioClient() = default;
+
 	virtual const char* GetLastError() = 0;
 
 	virtual const char* UploadObject(

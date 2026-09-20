@@ -229,10 +229,10 @@ Write-Step 'Building OpenSSL 3.4.0 (static /MT, no-shared)'
 $opensslSrc = Join-Path $DepsDir 'openssl'
 if (-not (Test-Path (Join-Path $OpensslPrefix 'lib\libcrypto.lib'))) {
     if (-not (Test-Path $opensslSrc)) { throw "OpenSSL source not found at $opensslSrc. Run: git submodule update --init" }
-    Invoke-Checked $script:Perl @('Configure', 'VC-WIN64A', 'no-asm', 'no-shared',
+    Invoke-Checked $script:Perl @('Configure', 'VC-WIN64A', 'enable-threads', 'no-asm', 'no-shared',
         "--prefix=$OpensslPrefix",
         "--openssldir=$OpensslPrefix",
-        '-static', '/MT') $opensslSrc
+        '/MT') $opensslSrc
     Invoke-Checked nmake @('build_libs') $opensslSrc
     Invoke-Checked nmake @('install_dev') $opensslSrc
 }
@@ -398,15 +398,40 @@ if (-not (Test-Path (Join-Path $DepsLib 'minio.lib'))) {
 } else { Write-Host '  minio-cpp already built, skipping.' }
 
 # ---------------------------------------------------------------------------
-# Debug variants of the C++ dependencies (/MTd)
-#
-# CherryLips Debug links with /MTd and MSVC's LNK2038 check requires C++
-# dependency objects to match.  zlib and OpenSSL are pure C (no /FAILIFMISMATCH
-# records) and are reused from the release build; their CRT references resolve
-# to the debug CRT via IgnoreSpecificDefaultLibraries in the vcxproj.
+# Debug variants of the dependencies (/MTd)
 # ---------------------------------------------------------------------------
 if ($Config -eq 'Debug') {
     New-Item -ItemType Directory -Force -Path (Join-Path $DepsLib 'Debug') | Out-Null
+
+    Write-Step 'Building zlib 1.3.1 (Debug /MTd)'
+    $zlibPrefixD = Join-Path $DepsDir 'zlib-install-Debug'
+    $zlibBuildD  = Join-Path $DepsSrc 'zlib-build-Debug'
+    if (-not (Test-Path (Join-Path $zlibPrefixD 'lib\zlibstaticd.lib'))) {
+        if (Test-Path $zlibBuildD) { Remove-Item $zlibBuildD -Recurse -Force }
+        Invoke-Checked $script:CMake @(
+            '-S', $zlibSrc, '-B', $zlibBuildD,
+            '-G', '"Visual Studio 17 2022"', '-A', 'x64',
+            "-DCMAKE_INSTALL_PREFIX=$zlibPrefixD",
+            '-DBUILD_SHARED_LIBS=OFF',
+            '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebug'
+        )
+        Invoke-Checked $script:CMake @('--build', $zlibBuildD, '--config', 'Debug', '--', '/m')
+        Invoke-Checked $script:CMake @('--install', $zlibBuildD, '--config', 'Debug')
+    }
+    Copy-Item (Join-Path $zlibPrefixD 'lib\zlibstaticd.lib') (Join-Path $DepsLib 'Debug\zlib.lib') -Force
+
+    Write-Step 'Building OpenSSL 3.4.0 (Debug /MTd, no-shared)'
+    $opensslPrefixD = Join-Path $DepsDir 'openssl-install-Debug'
+    if (-not (Test-Path (Join-Path $opensslPrefixD 'lib\libcrypto.lib'))) {
+        Invoke-Checked $script:Perl @('Configure', 'VC-WIN64A', 'enable-threads', 'no-asm', 'no-shared',
+            "--prefix=$opensslPrefixD",
+            "--openssldir=$opensslPrefixD",
+            '/MTd') $opensslSrc
+        Invoke-Checked nmake @('build_libs') $opensslSrc
+        Invoke-Checked nmake @('install_dev') $opensslSrc
+    }
+    Copy-Item (Join-Path $opensslPrefixD 'lib\libcrypto.lib') (Join-Path $DepsLib 'Debug\libcrypto.lib') -Force
+    Copy-Item (Join-Path $opensslPrefixD 'lib\libssl.lib')    (Join-Path $DepsLib 'Debug\libssl.lib') -Force
 
     Write-Step 'Building pugixml 1.14 (Debug /MTd)'
     $pugiPrefixD = Join-Path $DepsDir 'pugixml-install-Debug'
@@ -439,7 +464,7 @@ if ($Config -eq 'Debug') {
     Write-Step 'Building minio-cpp (Debug /MTd)'
     $minioBuildD = Join-Path $DepsSrc 'minio-cpp-build-Debug'
     if (-not (Test-Path (Join-Path $DepsLib 'Debug\minio.lib'))) {
-        $prefixPathsD = @($ZlibPrefix, $OpensslPrefix, $pugiPrefixD, $DepsLocal) -join ';'
+        $prefixPathsD = @($zlibPrefixD, $opensslPrefixD, $pugiPrefixD, $DepsLocal) -join ';'
         Invoke-Checked $script:CMake @(
             '-S', $MinioSrc, '-B', $minioBuildD,
             '-G', '"Visual Studio 17 2022"', '-A', 'x64',
@@ -447,7 +472,7 @@ if ($Config -eq 'Debug') {
             '-DBUILD_SHARED_LIBS=OFF',
             '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebug',
             '-DMINIO_CPP_TEST=OFF',
-            "-DZLIB_LIBRARY=$DepsLib\zlib.lib",
+            "-DZLIB_LIBRARY=$(Join-Path $DepsLib 'Debug\zlib.lib')",
             "-DZLIB_INCLUDE_DIR=$DepsInc"
         )
         Invoke-Checked $script:CMake @('--build', $minioBuildD, '--config', 'Debug', '--', '/m')
