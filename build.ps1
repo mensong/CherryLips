@@ -171,30 +171,45 @@ if ($uninitialized.Count -gt 0) {
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
+        $gitmodulesPath = Join-Path $RepoRoot '.gitmodules'
         foreach ($line in $uninitialized) {
-            # Status line format: "-<sha> <path> (<url>)"
-            if ($line -notmatch '^-\S+\s+(\S+)\s+\((.+)\)\s*$') {
+            # Status line format: "-<sha> <path> [(<url>)]" -- some git
+            # versions omit the URL for uninitialized submodules.
+            if ($line -notmatch '^-\S+\s+(\S+)') {
                 throw "Cannot parse submodule status line: $line"
             }
             $path = $Matches[1]
-            $url  = $Matches[2]
+            $url  = $null
+            if (Test-Path $gitmodulesPath) {
+                $url = & $script:Git @('config', '-f', $gitmodulesPath, '--get', "submodule.$path.url")
+                if ($LASTEXITCODE -ne 0) { $url = $null }
+            }
 
-            # Try the upstream URL first, then the mirror prefix.
-            $attemptUrls = @($url)
-            if ($mirror) { $attemptUrls += ($mirror + $url) }
+            # Try the upstream URL first, then the mirror prefix.  A $null
+            # entry means "use whatever URL .gitmodules / config provides".
+            $attemptUrls = @($null)
+            if ($url) {
+                $attemptUrls = @($url)
+                if ($mirror) { $attemptUrls += ($mirror + $url) }
+            }
 
             $cloned = $false
             foreach ($attemptUrl in $attemptUrls) {
                 for ($attempt = 1; $attempt -le 3; $attempt++) {
-                    Write-Host "  Cloning $path (attempt $attempt/3): $attemptUrl"
-                    & $script:Git @gitConfigArgs @('-c', "submodule.$path.url=$attemptUrl") @('submodule', 'update', '--init', '--', $path)
+                    $label = if ($attemptUrl) { $attemptUrl } else { '(URL from .gitmodules)' }
+                    Write-Host "  Cloning $path (attempt $attempt/3): $label"
+                    $cmd = @('submodule', 'update', '--init', '--', $path)
+                    if ($attemptUrl) {
+                        $cmd = @('-c', "submodule.$path.url=$attemptUrl") + $cmd
+                    }
+                    & $script:Git @gitConfigArgs @cmd
                     if ($LASTEXITCODE -eq 0) { $cloned = $true; break }
                     Start-Sleep -Seconds (5 * $attempt)
                 }
                 if ($cloned) { break }
             }
             if (-not $cloned) {
-                throw "Failed to clone submodule $path from $url (mirror fallback also failed). If github.com is blocked, rerun with -GitProxy http://127.0.0.1:<proxy-port>."
+                throw "Failed to clone submodule $path (mirror fallback also failed). If github.com is blocked, rerun with -GitProxy http://127.0.0.1:<proxy-port>."
             }
         }
     }
