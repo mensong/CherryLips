@@ -22,10 +22,18 @@
   Force a full rebuild of all dependencies (removes deps\lib, deps\include,
   and all install prefixes).
 
+.PARAMETER GitProxy
+  Optional HTTP proxy for git clone operations, e.g. "http://127.0.0.1:7890".
+
+.PARAMETER GitHubMirror
+  GitHub mirror prefix used as a fallback when a direct clone fails.
+  Default "https://ghfast.top/".  Pass "" to disable mirror fallback.
+
 .EXAMPLE
   .\build.ps1
   .\build.ps1 -Config Debug
   .\build.ps1 -CleanDeps
+  .\build.ps1 -GitProxy http://127.0.0.1:7890
 #>
 [CmdletBinding()]
 param(
@@ -35,7 +43,15 @@ param(
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
 
-    [switch]$CleanDeps
+    [switch]$CleanDeps,
+
+    # Local HTTP proxy for git clones, e.g. "http://127.0.0.1:7890".
+    # Use this when github.com is unreachable from the build machine.
+    [string]$GitProxy = '',
+
+    # GitHub mirror prefix used as a fallback when direct clone fails,
+    # e.g. "https://ghfast.top/".  Set to "" to disable the fallback.
+    [string]$GitHubMirror = 'https://ghfast.top/'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -141,7 +157,48 @@ if ($LASTEXITCODE -ne 0) { throw 'Unable to query git submodule status.' }
 $uninitialized = @($submoduleStatus | Where-Object { $_ -like '-*' })
 if ($uninitialized.Count -gt 0) {
     Write-Host '  Initializing missing Git submodules...'
-    Invoke-Checked $script:Git @('submodule', 'update', '--init')
+    $gitConfigArgs = @()
+    if ($GitProxy) {
+        Write-Host "  Using git proxy: $GitProxy"
+        $gitConfigArgs += @('-c', "http.proxy=$GitProxy", '-c', "https.proxy=$GitProxy")
+    }
+    $mirror = $null
+    if ($GitHubMirror) { $mirror = $GitHubMirror.TrimEnd('/') + '/' }
+
+    # Clone submodules one by one with retries and an optional mirror
+    # fallback, because github.com connectivity from CI/corporate networks
+    # is often flaky ("connection was reset" mid-clone).
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        foreach ($line in $uninitialized) {
+            # Status line format: "-<sha> <path> (<url>)"
+            if ($line -notmatch '^-\S+\s+(\S+)\s+\((.+)\)\s*$') {
+                throw "Cannot parse submodule status line: $line"
+            }
+            $path = $Matches[1]
+            $url  = $Matches[2]
+
+            # Try the upstream URL first, then the mirror prefix.
+            $attemptUrls = @($url)
+            if ($mirror) { $attemptUrls += ($mirror + $url) }
+
+            $cloned = $false
+            foreach ($attemptUrl in $attemptUrls) {
+                for ($attempt = 1; $attempt -le 3; $attempt++) {
+                    Write-Host "  Cloning $path (attempt $attempt/3): $attemptUrl"
+                    & $script:Git @gitConfigArgs @('-c', "submodule.$path.url=$attemptUrl") @('submodule', 'update', '--init', '--', $path)
+                    if ($LASTEXITCODE -eq 0) { $cloned = $true; break }
+                    Start-Sleep -Seconds (5 * $attempt)
+                }
+                if ($cloned) { break }
+            }
+            if (-not $cloned) {
+                throw "Failed to clone submodule $path from $url (mirror fallback also failed). If github.com is blocked, rerun with -GitProxy http://127.0.0.1:<proxy-port>."
+            }
+        }
+    }
+    finally { $ErrorActionPreference = $prevEap }
 }
 
 Write-Host "  MSBuild : $($script:MSBuild)"
