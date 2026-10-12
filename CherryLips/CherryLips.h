@@ -164,6 +164,25 @@ public:
 		void* progressUserData = NULL,
 		DWORD timeoutMS = 0) = 0;
 
+	virtual const char* UploadObjectResumable(
+		const RemoteObjectStruct* remoteObject,
+		const char* localFilePath,
+		size_t partSize = 0,
+		unsigned int threadCount = 4,
+		const char* resumeStatePath = NULL,
+		PFN_ProgressCallback progressCB = NULL,
+		void* progressUserData = NULL,
+		DWORD timeoutMS = 0) = 0;
+
+	virtual bool DownloadObjectResumable(
+		const RemoteObjectStruct* remoteObject,
+		const char* localFilePath,
+		size_t partSize = 0,
+		unsigned int threadCount = 4,
+		const char* resumeStatePath = NULL,
+		PFN_ProgressCallback progressCB = NULL,
+		void* progressUserData = NULL,
+		DWORD timeoutMS = 0) = 0;
 	virtual bool ReadObject(
 		const RemoteObjectStruct* remoteObject,
 		PFN_ReadObjectCallback readCB,

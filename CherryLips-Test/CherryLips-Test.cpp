@@ -60,7 +60,7 @@ void testMakeBucket(MinioClient* client) {
 void testUploadObject(MinioClient* client) {
 	std::cout << __FUNCTION__ << std::endl;
 	MinioClient::RemoteObjectStruct dest(BUCKET_NAME, OBJECT_PATH);
-	std::string etag = client->UploadObject(&dest, "CherryLips-Test.cpp", 0, _UploadProgressCallback, NULL, TIMEOUT);
+	std::string etag = client->UploadObject(&dest, "D:\\Work\\Git\\CherryLips\\CherryLips-Test\\CherryLips-Test.cpp", 0, _UploadProgressCallback, NULL, TIMEOUT);
 	std::cout << etag << std::endl;
 	printError(client);
 }
@@ -191,6 +191,38 @@ void testListObjects(MinioClient* client) {
 	printError(client);
 }
 
+void testUploadObjectResumable(MinioClient* client) {
+	std::cout << __FUNCTION__ << std::endl;
+	MinioClient::RemoteObjectStruct dest("plm-uat", "fv/test-resumable-upload.bin");
+	std::string etag = client->UploadObjectResumable(
+		&dest,
+		"D:\\Users\\mensong\\Desktop\\bbwg_1-8-5_77_7.apk",
+		0,        // auto part size (5MiB)
+		16,        // 4 threads
+		NULL,     // auto resume state path
+		_UploadProgressCallback,
+		NULL,
+		0);
+	std::cout << "etag: " << etag << std::endl;
+	printError(client);
+}
+
+void testDownloadObjectResumable(MinioClient* client) {
+	std::cout << __FUNCTION__ << std::endl;
+	MinioClient::RemoteObjectStruct src("plm-uat", "fv/test-resumable-upload.bin");
+	bool b = client->DownloadObjectResumable(
+		&src,
+		"test-resumable-download.bin",
+		0,        // auto part size (5MiB)
+		16,        // 4 threads
+		NULL,     // auto resume state path
+		_DownloadProgressCallback,
+		NULL,
+		0);
+	std::cout << (b ? "OK" : "FAILED") << std::endl;
+	printError(client);
+}
+
 int main() {
 #if 0
 
@@ -207,23 +239,8 @@ int main() {
 
 #endif
 
-	MinioClient::RemoteObjectStruct dest("plm-uat", "fv/2026/9/19/mensong");
-	std::string etag = client->UploadObject(
-		&dest, 
-		"D:\\working\\File\\220259908307504\\document\\AX.G92.TP.0060.00-1.SLDPRT", 
-		0, 
-		_UploadProgressCallback, 
-		NULL, 
-		0);	
-	printError(client);
-	
-	bool b = client->DownloadObject(
-		&dest, 
-		"d:\\tmp\\AX.G92.TP.0060.00-1.SLDPRT", 
-		NULL, 
-		_DownloadProgressCallback
-	);
-	printError(client);
+	testUploadObjectResumable(client);
+	testDownloadObjectResumable(client);
 
 #if 0
 	testMakeBucket(client);

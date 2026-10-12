@@ -4,6 +4,13 @@
 #include <sstream>
 #include <miniocpp/client.h>
 #include <nlohmann/json.hpp>
+#include <thread>
+#include <atomic>
+#include <vector>
+#include <mutex>
+#include <algorithm>
+#include <map>
+#include <set>
 
 class MinioClient_imp : public MinioClient {
 	//
@@ -935,6 +942,474 @@ public:
 				return false;
 			}
 
+		}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return false;
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return false;
+		}
+	}
+	// ---- Resumable multipart upload (chunked + multi-threaded + resumable) ----
+	virtual const char* UploadObjectResumable(
+		const RemoteObjectStruct* remoteObject,
+		const char* localFilePath,
+		size_t partSize = 0,
+		unsigned int threadCount = 4,
+		const char* resumeStatePath = NULL,
+		PFN_ProgressCallback progressCB = NULL,
+		void* progressUserData = NULL,
+		DWORD timeoutMS = 0) override {
+		m_errorBuffer.clear();
+		if (!remoteObject || !localFilePath) return "";
+
+		try {
+			std::ifstream file(localFilePath, std::ios::binary);
+			if (!file) {
+				m_errorBuffer = "unable to open file ";
+				m_errorBuffer += localFilePath;
+				return "";
+			}
+			file.seekg(0, std::ios::end);
+			uint64_t fileSize = (uint64_t)file.tellg();
+			file.close();
+
+			if (fileSize == 0) {
+				m_errorBuffer = "file is empty";
+				return "";
+			}
+
+			const size_t MIN_PART_SIZE = 5 * 1024 * 1024;
+			if (partSize == 0) partSize = MIN_PART_SIZE;
+			if (partSize < MIN_PART_SIZE) partSize = MIN_PART_SIZE;
+
+			size_t partCount = (size_t)((fileSize + partSize - 1) / partSize);
+			if (partCount > 10000) {
+				partSize = (size_t)((fileSize + 9999) / 10000);
+				if (partSize < MIN_PART_SIZE) partSize = MIN_PART_SIZE;
+				partCount = (size_t)((fileSize + partSize - 1) / partSize);
+			}
+
+			if (partCount == 1) {
+				return UploadObject(remoteObject, localFilePath, partSize,
+					progressCB, progressUserData, timeoutMS);
+			}
+
+			std::string statePath = resumeStatePath ?
+				resumeStatePath : (std::string(localFilePath) + ".resume");
+
+			std::string uploadId;
+			std::map<unsigned int, std::pair<std::string, size_t>> completedParts;
+
+			{
+				std::ifstream sf(statePath, std::ios::binary);
+				if (sf) {
+					try {
+						nlohmann::json j = nlohmann::json::parse(sf);
+						sf.close();
+						if (j.value("bucket", "") == remoteObject->bucket &&
+							j.value("object", "") == remoteObject->objectPath &&
+							j.value("fileSize", (uint64_t)0) == fileSize &&
+							j.value("partSize", (size_t)0) == partSize) {
+							uploadId = j.value("uploadId", "");
+							for (auto& p : j["completedParts"]) {
+								completedParts[p["partNumber"].get<unsigned int>()] =
+									{ p["etag"].get<std::string>(), p["size"].get<size_t>() };
+							}
+						}
+					}
+					catch (...) {}
+				}
+			}
+
+			if (uploadId.empty()) {
+				minio::s3::CreateMultipartUploadArgs cmuArgs;
+				cmuArgs.bucket = remoteObject->bucket;
+				cmuArgs.object = remoteObject->objectPath;
+				auto cmuResp = m_client.CreateMultipartUpload(cmuArgs);
+				if (!cmuResp) {
+					m_errorBuffer = cmuResp.error().String();
+					return "";
+				}
+				uploadId = cmuResp->upload_id;
+			}
+
+			std::atomic<size_t> uploadedBytes(0);
+			for (auto& kv : completedParts) {
+				uploadedBytes += kv.second.second;
+			}
+
+			std::mutex stateMutex;
+			std::atomic<bool> failed(false);
+			std::string failError;
+			std::atomic<size_t> nextPart(1);
+			DWORD startTime = ::GetTickCount();
+
+			unsigned int maxThreads = (std::min)(threadCount, (unsigned int)partCount);
+			if (maxThreads < 1) maxThreads = 1;
+
+			auto worker = [&]() {
+				std::ifstream tfile(localFilePath, std::ios::binary);
+				if (!tfile) return;
+
+				while (true) {
+					if (failed.load()) break;
+					if (timeoutMS && (::GetTickCount() - startTime > timeoutMS)) {
+						failed = true;
+						failError = "timeout";
+						break;
+					}
+
+					size_t partNum = nextPart.fetch_add(1);
+					if (partNum > partCount) break;
+
+					{
+						std::lock_guard<std::mutex> lk(stateMutex);
+						if (completedParts.count((unsigned int)partNum)) continue;
+					}
+
+					size_t partOffset = (partNum - 1) * partSize;
+					size_t thisPartSize = (partNum == partCount) ?
+						(size_t)(fileSize - partOffset) : partSize;
+
+					std::string partData(thisPartSize, '\0');
+					tfile.seekg(partOffset);
+					tfile.read(&partData[0], thisPartSize);
+					if ((size_t)tfile.gcount() != thisPartSize) {
+						std::lock_guard<std::mutex> lk(stateMutex);
+						if (!failed.load()) {
+							failed = true;
+							failError = "failed to read part " + std::to_string(partNum);
+						}
+						break;
+					}
+
+					std::string etag;
+					bool partOk = false;
+					for (int retry = 0; retry < 3 && !partOk && !failed.load(); retry++) {
+						minio::s3::UploadPartArgs upArgs;
+						upArgs.bucket = remoteObject->bucket;
+						upArgs.object = remoteObject->objectPath;
+						upArgs.upload_id = uploadId;
+						upArgs.part_number = (unsigned int)partNum;
+						upArgs.part_size = thisPartSize;
+						upArgs.data = std::string_view(partData.data(), thisPartSize);
+
+						auto upResp = m_client.UploadPart(upArgs);
+						if (upResp) {
+							etag = upResp->etag;
+							partOk = true;
+						}
+						else if (retry == 2) {
+							std::lock_guard<std::mutex> lk(stateMutex);
+							if (!failed.load()) {
+								failed = true;
+								failError = upResp.error().String();
+							}
+						}
+					}
+
+					if (partOk) {
+						std::lock_guard<std::mutex> lk(stateMutex);
+						completedParts[(unsigned int)partNum] = { etag, thisPartSize };
+						size_t totalUploaded = uploadedBytes += thisPartSize;
+
+						nlohmann::json j;
+						j["type"] = "upload";
+						j["bucket"] = remoteObject->bucket;
+						j["object"] = remoteObject->objectPath;
+						j["fileSize"] = fileSize;
+						j["partSize"] = partSize;
+						j["partCount"] = partCount;
+						j["uploadId"] = uploadId;
+						j["completedParts"] = nlohmann::json::array();
+						for (auto& kv : completedParts) {
+							j["completedParts"].push_back({
+								{"partNumber", kv.first},
+								{"etag", kv.second.first},
+								{"size", kv.second.second}
+							});
+						}
+						std::ofstream of(statePath, std::ios::binary | std::ios::trunc);
+						if (of) of << j.dump();
+
+						if (progressCB) {
+							progressCB(0, 0, 0, (double)fileSize,
+								(double)totalUploaded, 0, progressUserData);
+						}
+					}
+				}
+			};
+
+			std::vector<std::thread> threads;
+			for (unsigned int i = 0; i < maxThreads; i++)
+				threads.emplace_back(worker);
+			for (auto& t : threads) t.join();
+
+			if (failed.load()) {
+				m_errorBuffer = failError;
+				return "";
+			}
+
+			minio::s3::CompleteMultipartUploadArgs cmuArgs;
+			cmuArgs.bucket = remoteObject->bucket;
+			cmuArgs.object = remoteObject->objectPath;
+			cmuArgs.upload_id = uploadId;
+			std::list<minio::s3::Part> parts;
+			for (auto& kv : completedParts)
+				parts.emplace_back(kv.first, kv.second.first);
+			cmuArgs.parts = parts;
+
+			auto cmuResp = m_client.CompleteMultipartUpload(cmuArgs);
+			if (!cmuResp) {
+				m_errorBuffer = cmuResp.error().String();
+				return "";
+			}
+
+			std::remove(statePath.c_str());
+
+			m_buffer = cmuResp->etag;
+			return m_buffer.c_str();
+		}
+		catch (const std::exception& e) {
+			m_errorBuffer = e.what();
+			return "";
+		}
+		catch (...) {
+			m_errorBuffer = "unknown exception";
+			return "";
+		}
+	}
+	// ---- Resumable chunked download (chunked + multi-threaded + resumable) ----
+	// Uses Windows OVERLAPPED writes for concurrent file writes without mutex.
+	virtual bool DownloadObjectResumable(
+		const RemoteObjectStruct* remoteObject,
+		const char* localFilePath,
+		size_t partSize = 0,
+		unsigned int threadCount = 4,
+		const char* resumeStatePath = NULL,
+		PFN_ProgressCallback progressCB = NULL,
+		void* progressUserData = NULL,
+		DWORD timeoutMS = 0) override {
+		m_errorBuffer.clear();
+		if (!remoteObject || !localFilePath) return false;
+
+		try {
+			minio::s3::StatObjectArgs statArgs;
+			statArgs.bucket = remoteObject->bucket;
+			statArgs.object = remoteObject->objectPath;
+
+			auto statResp = m_client.StatObject(statArgs);
+			if (!statResp) {
+				m_errorBuffer = statResp.error().String();
+				return false;
+			}
+			uint64_t objectSize = statResp->size;
+			std::string etag = statResp->etag;
+
+			if (objectSize == 0) {
+				std::ofstream f(localFilePath, std::ios::binary | std::ios::trunc);
+				return true;
+			}
+
+			const size_t MIN_PART_SIZE = 5 * 1024 * 1024;
+			if (partSize == 0) partSize = MIN_PART_SIZE;
+			if (partSize < MIN_PART_SIZE) partSize = MIN_PART_SIZE;
+
+			size_t partCount = (size_t)((objectSize + partSize - 1) / partSize);
+			if (partCount > 10000) {
+				partSize = (size_t)((objectSize + 9999) / 10000);
+				if (partSize < MIN_PART_SIZE) partSize = MIN_PART_SIZE;
+				partCount = (size_t)((objectSize + partSize - 1) / partSize);
+			}
+
+			if (partCount == 1) {
+				return DownloadObject(remoteObject, localFilePath, NULL,
+					progressCB, progressUserData, timeoutMS);
+			}
+
+			std::string statePath = resumeStatePath ?
+				resumeStatePath : (std::string(localFilePath) + ".resume");
+
+			std::set<unsigned int> completedParts;
+			{
+				std::ifstream sf(statePath, std::ios::binary);
+				if (sf) {
+					try {
+						nlohmann::json j = nlohmann::json::parse(sf);
+						sf.close();
+						if (j.value("bucket", "") == remoteObject->bucket &&
+							j.value("object", "") == remoteObject->objectPath &&
+							j.value("objectSize", (uint64_t)0) == objectSize &&
+							j.value("etag", "") == etag &&
+							j.value("partSize", (size_t)0) == partSize) {
+							for (auto& n : j["completedParts"])
+								completedParts.insert(n.get<unsigned int>());
+						}
+					}
+					catch (...) {}
+				}
+			}
+
+			// OPEN_ALWAYS preserves existing content for resume
+			HANDLE hFile = CreateFileA(localFilePath, GENERIC_WRITE,
+				FILE_SHARE_READ, NULL, OPEN_ALWAYS, 0, NULL);
+			if (hFile == INVALID_HANDLE_VALUE) {
+				m_errorBuffer = "unable to create file " + std::string(localFilePath);
+				return false;
+			}
+
+			// Pre-allocate file to object size
+			LARGE_INTEGER li;
+			li.QuadPart = (LONGLONG)objectSize;
+			SetFilePointerEx(hFile, li, NULL, FILE_BEGIN);
+			SetEndOfFile(hFile);
+
+			std::atomic<size_t> downloadedBytes(0);
+			for (auto& num : completedParts) {
+				size_t partOffset = (num - 1) * partSize;
+				size_t thisPartSize = (num == partCount) ?
+					(size_t)(objectSize - partOffset) : partSize;
+				downloadedBytes += thisPartSize;
+			}
+
+			std::mutex stateMutex;
+			std::atomic<bool> failed(false);
+			std::string failError;
+			std::atomic<size_t> nextPart(1);
+			DWORD startTime = ::GetTickCount();
+
+			unsigned int maxThreads = (std::min)(threadCount, (unsigned int)partCount);
+			if (maxThreads < 1) maxThreads = 1;
+
+			auto worker = [&]() {
+				while (true) {
+					if (failed.load()) break;
+					if (timeoutMS && (::GetTickCount() - startTime > timeoutMS)) {
+						failed = true;
+						failError = "timeout";
+						break;
+					}
+
+					size_t partNum = nextPart.fetch_add(1);
+					if (partNum > partCount) break;
+
+					{
+						std::lock_guard<std::mutex> lk(stateMutex);
+						if (completedParts.count((unsigned int)partNum)) continue;
+					}
+
+					size_t partOffset = (partNum - 1) * partSize;
+					size_t thisPartSize = (partNum == partCount) ?
+						(size_t)(objectSize - partOffset) : partSize;
+
+					// Download part via GetObject with offset/length
+					std::string partData;
+					partData.reserve(thisPartSize);
+
+					minio::s3::GetObjectArgs getArgs;
+					getArgs.bucket = remoteObject->bucket;
+					getArgs.object = remoteObject->objectPath;
+					getArgs.offset = partOffset;
+					getArgs.length = thisPartSize;
+					getArgs.userdata = &partData;
+					getArgs.datafunc = [&](minio::http::DataFunctionArgs args) -> bool {
+						std::string* buf = (std::string*)args.userdata;
+						buf->append(args.datachunk.data(), args.datachunk.size());
+						return true;
+					};
+
+					bool partOk = false;
+					for (int retry = 0; retry < 3 && !partOk && !failed.load(); retry++) {
+						partData.clear();
+						auto getResp = m_client.GetObject(getArgs);
+						if (getResp) {
+							partOk = true;
+						}
+						else if (retry == 2) {
+							std::lock_guard<std::mutex> lk(stateMutex);
+							if (!failed.load()) {
+								failed = true;
+								failError = getResp.error().String();
+							}
+						}
+					}
+
+					if (partOk) {
+						// WriteFile with OVERLAPPED on a synchronous handle writes
+						// at the specified offset without using the file pointer,
+						// so multiple threads can write concurrently without mutex.
+						size_t remaining = partData.size();
+						size_t writeOffset = partOffset;
+						const char* writePtr = partData.data();
+						bool writeOk = true;
+						while (remaining > 0) {
+							DWORD chunkSize = (remaining > 0x40000000) ?
+								(DWORD)0x40000000 : (DWORD)remaining;
+							OVERLAPPED ov = {};
+							ov.Offset = (DWORD)(writeOffset & 0xFFFFFFFF);
+							ov.OffsetHigh = (DWORD)(writeOffset >> 32);
+							DWORD bytesWritten = 0;
+							if (!WriteFile(hFile, writePtr, chunkSize, &bytesWritten, &ov) ||
+								bytesWritten != chunkSize) {
+								writeOk = false;
+								break;
+							}
+							writePtr += chunkSize;
+							writeOffset += chunkSize;
+							remaining -= chunkSize;
+						}
+
+						if (!writeOk) {
+							std::lock_guard<std::mutex> lk(stateMutex);
+							if (!failed.load()) {
+								failed = true;
+								failError = "failed to write part " + std::to_string(partNum);
+							}
+							continue;
+						}
+
+						std::lock_guard<std::mutex> lk(stateMutex);
+						completedParts.insert((unsigned int)partNum);
+						size_t totalDownloaded = downloadedBytes += thisPartSize;
+
+						nlohmann::json j;
+						j["type"] = "download";
+						j["bucket"] = remoteObject->bucket;
+						j["object"] = remoteObject->objectPath;
+						j["objectSize"] = objectSize;
+						j["etag"] = etag;
+						j["partSize"] = partSize;
+						j["partCount"] = partCount;
+						j["completedParts"] = completedParts;
+						std::ofstream of(statePath, std::ios::binary | std::ios::trunc);
+						if (of) of << j.dump();
+
+						if (progressCB) {
+							progressCB((double)objectSize, (double)totalDownloaded,
+								0, 0, 0, 0, progressUserData);
+						}
+					}
+				}
+			};
+
+			std::vector<std::thread> threads;
+			for (unsigned int i = 0; i < maxThreads; i++)
+				threads.emplace_back(worker);
+			for (auto& t : threads) t.join();
+
+			CloseHandle(hFile);
+
+			if (failed.load()) {
+				m_errorBuffer = failError;
+				return false;
+			}
+
+			std::remove(statePath.c_str());
+
+			return true;
 		}
 		catch (const std::exception& e) {
 			m_errorBuffer = e.what();
