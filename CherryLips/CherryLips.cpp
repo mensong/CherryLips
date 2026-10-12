@@ -972,11 +972,11 @@ public:
 				m_errorBuffer += localFilePath;
 				return "";
 			}
-			file.seekg(0, std::ios::end);
-			uint64_t fileSize = (uint64_t)file.tellg();
-			file.close();
+		file.seekg(0, std::ios::end);
+		uint64_t fileSize = (uint64_t)file.tellg();
+		file.close();
 
-			if (fileSize == 0) {
+		if (fileSize == 0) {
 				m_errorBuffer = "file is empty";
 				return "";
 			}
@@ -1003,6 +1003,14 @@ public:
 			std::string uploadId;
 			std::map<unsigned int, std::pair<std::string, size_t>> completedParts;
 
+			// Get file last-write time for resume validation.
+			uint64_t fileMtime = 0;
+			WIN32_FILE_ATTRIBUTE_DATA fad;
+			if (GetFileAttributesExA(localFilePath, GetFileExInfoStandard, &fad)) {
+				fileMtime = ((uint64_t)fad.ftLastWriteTime.dwHighDateTime << 32) |
+				            (uint64_t)fad.ftLastWriteTime.dwLowDateTime;
+			}
+
 			{
 				std::ifstream sf(statePath, std::ios::binary);
 				if (sf) {
@@ -1012,12 +1020,20 @@ public:
 						if (j.value("bucket", "") == remoteObject->bucket &&
 							j.value("object", "") == remoteObject->objectPath &&
 							j.value("fileSize", (uint64_t)0) == fileSize &&
-							j.value("partSize", (size_t)0) == partSize) {
+							j.value("partSize", (size_t)0) == partSize &&
+							j.value("fileMtime", (uint64_t)0) == fileMtime) {
 							uploadId = j.value("uploadId", "");
 							for (auto& p : j["completedParts"]) {
 								completedParts[p["partNumber"].get<unsigned int>()] =
 									{ p["etag"].get<std::string>(), p["size"].get<size_t>() };
 							}
+						} else if (!j.value("uploadId", "").empty()) {
+							// File changed or state mismatch — abort stale upload.
+							minio::s3::AbortMultipartUploadArgs amuArgs;
+							amuArgs.bucket = remoteObject->bucket;
+							amuArgs.object = remoteObject->objectPath;
+							amuArgs.upload_id = j.value("uploadId", "");
+							m_client.AbortMultipartUpload(amuArgs);
 						}
 					}
 					catch (...) {}
@@ -1123,6 +1139,7 @@ public:
 						j["fileSize"] = fileSize;
 						j["partSize"] = partSize;
 						j["partCount"] = partCount;
+						j["fileMtime"] = fileMtime;
 						j["uploadId"] = uploadId;
 						j["completedParts"] = nlohmann::json::array();
 						for (auto& kv : completedParts) {
